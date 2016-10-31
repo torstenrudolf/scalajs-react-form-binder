@@ -1,0 +1,25 @@
+{
+  "name": "scalajs-react-formbinder-demo",
+  "version": "0.0.1",
+  "description": "scalajs-react-formbinder demo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/torstenrudolf/scalajs-react-formbinder.git"
+  },
+  "scripts": {
+    "build-dev": "webpack --progress --colors",
+    "build": "webpack --config webpack.config.prod.js"
+  },
+  "devDependencies": {
+    "source-map-support": "v0.4.2",
+    "webpack": "^1.9.10",
+    "compression-webpack-plugin": "^0.2.0"
+  },
+  "dependencies": {
+    "material-ui": "v0.15.4",
+    "highlight.js": "8.9.1",
+    "react": "^15.3.2",
+    "react-dom": "^15.3.2",
+    "react-tap-event-plugin": "^1.0.0"
+  }
+}

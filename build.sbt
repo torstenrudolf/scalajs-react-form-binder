@@ -50,9 +50,49 @@ lazy val core = (project in file("core")).configure(commonSettings)
         </developers>
   )
 
+lazy val installExternalNPMDeps = TaskKey[Unit]("Execute the npm build command to build the external ui dependencies")
+def filesToWatchForExternalNPMDepsTask(workingDir: File) : Seq[File] = {
+  Seq(workingDir / "package.json",
+    workingDir / "webpack.config.js",
+    workingDir / "webpack.config.prod.js",
+    workingDir / "resources/jsBundles/index.js")
+}
+def installExternalNPMDeps(workingDir: File): Unit = {
+  // use FileFunction.cached to run this task only if the package.json or webpack files have changed
+  FileFunction.cached(workingDir / "build/cache",
+    FilesInfo.lastModified, /* inStyle */
+    FilesInfo.exists) /* outStyle */ {
+    (inFiles: Set[File]) => {
+      val installCommand = Seq("npm", "install")
+      println(s"${installCommand.mkString(" ")}")
+      Process(installCommand, workingDir) !!
+
+      val runCommand = Seq("npm", "run", "build")
+      println(s"${runCommand.mkString(" ")}")
+      Process(runCommand, workingDir) !!
+
+      Set(workingDir / "build/frontend-jsdeps.js")
+    }
+  }(filesToWatchForExternalNPMDepsTask(workingDir).toSet)
+
+}
+
+lazy val demo = project
+  .dependsOn(core)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.github.chandu0101.scalajs-react-components" %%% "core" % "0.5.0"
+    ),
+    Seq(packageScalaJSLauncher, fastOptJS, fullOptJS) map { packageJSKey =>
+      crossTarget in(Compile, packageJSKey) := baseDirectory.value / "build"
+    },
+    installExternalNPMDeps := installExternalNPMDeps(baseDirectory.value),
+    watchSources <++= baseDirectory map { path => filesToWatchForExternalNPMDepsTask(path)},
+    compile in Compile <<= (compile in Compile) dependsOn installExternalNPMDeps,
+    cleanFiles <++= baseDirectory { base => Seq(base / "build", base / "node_modules") }
+  )
+  .configure(commonSettings, preventPublication)
+
 lazy val root = (project in file("."))
   .aggregate(core)
   .configure(commonSettings, preventPublication)
-
-
-

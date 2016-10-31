@@ -1,7 +1,9 @@
-target/
+target
 .cache
 .classpath
 .project
-.settings/
-.idea/
+.settings
+.idea
 *.txt
+node_modules
+build

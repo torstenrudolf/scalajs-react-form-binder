@@ -1,92 +1,36 @@
 # FormBinder
 
-FormBinder is a tool to bind reactjs form fields to a DataModel plus validation.
+FormBinder is a tool to bind
+[scalajs-react](https://github.com/japgolly/scalajs-react)
+form fields to a data model plus validation.
 
+My main goal was to provide a data binding between form fields and
+data model and a way to specify extra validation rules without loosing 
+flexibility of the form design.
 
-## Usage
+## Installation
 
-```scala
-import FormBinder.{ValidationResult, Validator}
+Currently it is available as a sonatype snapshot, add this to your build.sbt:
 
-
-case class Data(username: String = "", 
-                password1: String = "",
-                password2: String = "")                     
-
-// define validation rules in companion object
-// note: the field names must match to the data model
-object Data {
-  
-  def username(username: String) = {
-    if (username.isEmpty) ValidationResult.withError("Please specify username")
-    else ValidationResult.success
-  }
-
-  def password1(password1: String) = // simpler syntax
-    Validator(password.isEmpty, "Please specify password")
-  
-  def password2(password1: String, password2: Option[String]) = {  
-    // you can "inject" any other fields as Options 
-    if (password1.isEmpty) ValidationResult.withError("Please specify password")
-    else if (password2.nonEmpty && password1 != password2.get) ValidationResult.withError("Must match password.")
-    else ValidationResult.success
-  }
-
-  // define global (not tied to a specific field) validation rules here
-  def $global(data: Data) = {
-    ValidationResult.success
-  }
-  
-  
-  ...
-
-  // then define the form layout fields -- probably inside the component's Backend
-  
-  object FormDescription extends FormBinder.FormDescription[Data] {
-
-    // field names must match the data model's field names
-    val username = FormFieldDescriptor((a: FormFieldArgs[String]) =>
-      MuiTextField(
-        floatingLabelText = "Username",
-        onChange = (e: ReactEventI) => a.onChangeHandler(e.target.value),
-        errorText = a.currentValidationResult.errorMessage)()
-    )
-    val password1 = ...
-    val password2 = ...
-
-    // define what to do after form data and/or form validation changes
-    override def onChange(newData: Option[Data],
-                          allFieldValidationResults: List[ValidationResult],
-                          globalFormValidationResult: ValidationResult): Callback = {
-      $.modState(_.copy(data = newData, globalValidationResult = globalFormValidationResult))
-    }
-  }
-  
-  // this binds the data model, validation rules and form description together
-  val form = FormBinder.bind[Data](FormDescription)
-
-  // use it like this:
-  val handleSubmit: Callback = $.state >>= { (state: State)  =>
-    if (state.globalFormValidationResult.isValid) {
-      // do something with state.data.get
-    } else form.showUninitializedFieldErrors
-  }
-  
-  def render(state: State) = <.div(
-    <.form(
-      ^.onSubmit --> handleSubmit,
-      ^.display.flex,
-      ^.flexDirection.column,
-      loginForm.field(LoginFormDescription.username),
-      loginForm.field(LoginFormDescription.password)
-    ),
-    if (!state.globalValidationResult.isValid) {
-      <.div(state.globalValidationResult.errorMessage)
-    } else ""
-  )
+```
+libraryDependencies += "com.github.torstenrudolf.scalajs-react-form-binder" %%% "core" % "0.0.1-SNAPSHOT"
 ```
 
+You also might need to add the resolver for the sonatype snapshot repo:
+```
+resolvers ++= Resolver.sonatypeRepo("snapshots")
+```
+
+## Usage
+See demo: https://torstenrudolf.github.io/scalajs-react-form-binder
+
+* define the data model as a `case class`
+* optionally define validation rules in an object
+* define the form fields in a FormLayout object
+* the matching of the field-names is type-safe as it is done at compile time via a macro
+* have full control over display of the form fields inside your `render` method
 
 ## TODO
 
-* add prebuild FormFieldDescriptors for material-ui
+* add tests
+* add prebuild FormFieldDescriptors for material-ui fields

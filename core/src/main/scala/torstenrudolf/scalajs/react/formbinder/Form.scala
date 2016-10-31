@@ -45,7 +45,7 @@ abstract class FormLayout[T] {
   /*
 
    */
-  def onChange(newData: Option[T],
+  def onChange(validatedData: Option[T],
                allFieldValidationResults: List[ValidationResult],
                globalFormValidationResult: ValidationResult): Callback
 
