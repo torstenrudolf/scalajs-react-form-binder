@@ -27,9 +27,8 @@ object SimpleDemo {
 
   class Backend($: BackendScope[Unit, State]) {
 
-    // then define the form layout fields
+    // then define the form layout fields -- names must match the data model's field names
     object FormLayout extends FormLayout[Data] {
-      // field names must match the data model's field names
       val username = TextField("Username")
       val password = TextField("Password", isPassword = true)
 

@@ -3,13 +3,10 @@ package torstenrudolf.scalajs.react.formbinder.demo.components
 import chandu0101.macros.tojs.GhPagesMacros
 
 
-
-
 object SimpleMuiDemo {
   val code = GhPagesMacros.exampleSource
 
   // EXAMPLE:START
-  import scala.scalajs.js
   import japgolly.scalajs.react._
   import japgolly.scalajs.react.vdom.prefix_<^._
   import chandu0101.scalajs.react.components.materialui.{MuiRaisedButton, MuiTextField}
@@ -21,22 +18,19 @@ object SimpleMuiDemo {
 
   // define validation rules in separate object -- note: the method names and signatures must match to the data model's
   object DataValidation {
-    def username(username: String): ValidationResult =
-      if (username.isEmpty) ValidationResult.withError("Please specify username") else ValidationResult.Success
-
-    // simpler  syntax with `Validator` helper
-    def password(password: String): ValidationResult = Validator(password.nonEmpty, "Please specify password")
+    def username(username: String) = Validator(username.nonEmpty, "Please specify username")
+    def password(password: String) = Validator(password.nonEmpty, "Please specify password")
   }
 
   case class State(data: Option[Data] = None)
 
   class Backend($: BackendScope[Unit, State]) {
 
-    // then define the form layout fields
+    // then define the form layout fields -- names must match the data model's field names
     object FormLayout extends FormLayout[Data] {
-      // field names must match the data model's field names
-      val username = TextField("Username")
-      val password = TextField("Password", isPassword = true)
+      import torstenrudolf.scalajs.react.formbinder.materialui.FormFieldDescriptors._
+      val username = MuiTextField(floatingLabelText = "Username").asFormFieldDescriptor  //TextField("Username")
+      val password = MuiTextField(floatingLabelText = "Password", `type` = "password").asFormFieldDescriptor
 
       // define what to do after form data or form validation changes
       def onChange(validatedData: Option[Data],
@@ -73,14 +67,6 @@ object SimpleMuiDemo {
     )
   }
 
-  // the FormFieldDescriptor that defines error display and binds the onChangeCB to the field
-  def TextField(labelText: String, isPassword: Boolean = false) =
-  FormFieldDescriptor((a: FormFieldArgs[String]) =>
-    MuiTextField(
-      floatingLabelText = labelText,
-      `type` = if (isPassword) "password" else js.undefined,
-      onChange = (e: ReactEventI) => a.onChangeCB(e.target.value),
-      errorText = a.currentValidationResult.errorMessage)())
   // EXAMPLE:END
 
   val component = ReactComponentB[Unit]("SimpleFormDemo")

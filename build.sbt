@@ -6,7 +6,35 @@ def commonSettings: Project => Project =
       version := "0.0.1-SNAPSHOT",
       homepage := Some(url("https://github.com/torstenrudolf/scalajs-react-form-binder")),
       licenses += ("MIT", url("https://opensource.org/licenses/MIT")),
-      scalaVersion := "2.11.8")
+      scalaVersion := "2.11.8",
+      publishTo <<= version { (v: String) =>
+        val nexus = "https://oss.sonatype.org/"
+        if (v.trim.endsWith("SNAPSHOT"))
+          Some("snapshots" at nexus + "content/repositories/snapshots")
+        else
+          Some("releases" at nexus + "service/local/staging/deploy/maven2")
+      },
+      publishArtifact in Test := false,
+      pomExtra :=
+        <url>https://github.com/torstenrudolf/scalajs-react-form-binder</url>
+          <licenses>
+            <license>
+              <name>MIT license</name>
+              <url>http://www.opensource.org/licenses/mit-license.php</url>
+            </license>
+          </licenses>
+          <scm>
+            <url>git://github.com/torstenrudolf/scalajs-react-form-binder.git</url>
+            <connection>scm:git://github.com/torstenrudolf/scalajs-react-form-binder.git</connection>
+          </scm>
+          <developers>
+            <developer>
+              <id>torstenrudolf</id>
+              <name>Torsten Rudolf</name>
+              <url>https://github.com/torstenrudolf</url>
+            </developer>
+          </developers>
+    )
 
 def preventPublication: Project => Project =
   _.settings(
@@ -14,41 +42,24 @@ def preventPublication: Project => Project =
     publishArtifact := false)
 
 
-lazy val core = (project in file("core")).configure(commonSettings)
+lazy val core = project
+  .configure(commonSettings)
   .settings(
     name := "core",
     libraryDependencies ++= Seq(
       "org.scala-lang" % "scala-compiler" % scalaVersion.value,
       "com.github.japgolly.scalajs-react" %%% "extra" % "0.11.2"
-    ),
-    publishTo <<= version { (v: String) =>
-      val nexus = "https://oss.sonatype.org/"
-      if (v.trim.endsWith("SNAPSHOT"))
-        Some("snapshots" at nexus + "content/repositories/snapshots")
-      else
-        Some("releases" at nexus + "service/local/staging/deploy/maven2")
-    },
-    publishArtifact in Test := false,
-    pomExtra :=
-      <url>https://github.com/torstenrudolf/scalajs-react-form-binder</url>
-        <licenses>
-          <license>
-            <name>MIT license</name>
-            <url>http://www.opensource.org/licenses/mit-license.php</url>
-          </license>
-        </licenses>
-        <scm>
-          <url>git://github.com/torstenrudolf/scalajs-react-form-binder.git</url>
-          <connection>scm:git://github.com/torstenrudolf/scalajs-react-form-binder.git</connection>
-        </scm>
-        <developers>
-          <developer>
-            <id>torstenrudolf</id>
-            <name>Torsten Rudolf</name>
-            <url>https://github.com/torstenrudolf</url>
-          </developer>
-        </developers>
+    )
   )
+
+lazy val extras = project
+  .dependsOn(core)
+  .configure(commonSettings)
+  .settings(
+    name := "extras",
+    libraryDependencies += "com.github.chandu0101.scalajs-react-components" %%% "core" % "0.5.0"
+  )
+
 
 lazy val installExternalNPMDeps = TaskKey[Unit]("Execute the npm build command to build the external ui dependencies")
 def filesToWatchForExternalNPMDepsTask(workingDir: File) : Seq[File] = {
@@ -78,8 +89,10 @@ def installExternalNPMDeps(workingDir: File): Unit = {
 }
 
 lazy val demo = project
-  .dependsOn(core)
+  .dependsOn(extras)
+  .configure(commonSettings, preventPublication)
   .settings(
+    name := "demo",
     libraryDependencies ++= Seq(
       "com.github.chandu0101.scalajs-react-components" %%% "core" % "0.5.0"
     ),
@@ -91,7 +104,7 @@ lazy val demo = project
     compile in Compile <<= (compile in Compile) dependsOn installExternalNPMDeps,
     cleanFiles <++= baseDirectory { base => Seq(base / "build", base / "node_modules") }
   )
-  .configure(commonSettings, preventPublication)
+
 
 lazy val root = (project in file("."))
   .aggregate(core)
