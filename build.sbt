@@ -107,5 +107,5 @@ lazy val demo = project
 
 
 lazy val root = (project in file("."))
-  .aggregate(core)
+  .aggregate(core, extras, demo)
   .configure(commonSettings, preventPublication)

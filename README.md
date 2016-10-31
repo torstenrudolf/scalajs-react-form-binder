@@ -36,7 +36,12 @@ See demo: https://torstenrudolf.github.io/scalajs-react-form-binder
 * the matching of the field-names is type-safe as it is done at compile time via a macro
 * have full control over display of the form fields inside your `render` method
 
+## Contribution
+
+Contribution is welcome. I am fairly new to scala and this project is more of a testing ground for me.
+Please file issues and/or pull requests! I am also happy to hear your opinion if anything could be done better or 
+in a different way :-)
+
 ## TODO
 
 * add tests
-* add prebuild FormFieldDescriptors for material-ui fields
