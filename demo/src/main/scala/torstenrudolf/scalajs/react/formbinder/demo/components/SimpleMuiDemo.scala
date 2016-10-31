@@ -29,7 +29,7 @@ object SimpleMuiDemo {
     // then define the form layout fields -- names must match the data model's field names
     object FormLayout extends FormLayout[Data] {
       import torstenrudolf.scalajs.react.formbinder.materialui.FormFieldDescriptors._
-      val username = MuiTextField(floatingLabelText = "Username").asFormFieldDescriptor  //TextField("Username")
+      val username = MuiTextField(floatingLabelText = "Username").asFormFieldDescriptor
       val password = MuiTextField(floatingLabelText = "Password", `type` = "password").asFormFieldDescriptor
 
       // define what to do after form data or form validation changes
@@ -39,7 +39,7 @@ object SimpleMuiDemo {
     }
 
     // this does the magic and binds the data model, validation rules and formlayout together
-    val form = bind[Data](DataValidation, FormLayout)
+    val form = bind[Data](FormLayout, DataValidation)
 
     // use it like this:
     val handleSubmit: Callback = $.state >>= {
@@ -50,7 +50,7 @@ object SimpleMuiDemo {
     }
 
     // you have full control over the display of the form fields
-    def render(state: State) = CodeExample(code, "SimpleFormDemo")(
+    def render(state: State) = CodeExample(code, "Using Material-UI")(
       <.div(
         <.form(
           ^.onSubmit --> handleSubmit,
@@ -69,7 +69,7 @@ object SimpleMuiDemo {
 
   // EXAMPLE:END
 
-  val component = ReactComponentB[Unit]("SimpleFormDemo")
+  val component = ReactComponentB[Unit]("SimpleMuiDemo")
     .initialState(State())
     .renderBackend[Backend]
     .build

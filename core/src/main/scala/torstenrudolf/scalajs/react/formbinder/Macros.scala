@@ -14,7 +14,7 @@ object Macros {
     val apply = moduleSym.typeSignature.declaration(newTermName("apply")).asMethod
     // can handle only default parameters from the first parameter list
     // because subsequent parameter lists might depend on previous parameters
-    val kvps = apply.paramss.head.map(_.asTerm).zipWithIndex.flatMap{ case (p, i) =>
+    val kvps = apply.paramss.head.map(_.asTerm).zipWithIndex.flatMap { case (p, i) =>
       if (!p.isParamWithDefault) None
       else {
         val getterName = newTermName("apply$default$" + (i + 1))
@@ -32,8 +32,8 @@ object Macros {
   }
 
   def generate[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
-                                (validatorObject: c.Expr[Any],
-                                 formLayout: c.Expr[FormLayout[T]]): c.Expr[Form[T]] = {
+                                (formLayout: c.Expr[FormLayout[T]],
+                                 validatorObject: c.Expr[Any]): c.Expr[Form[T]] = {
 
     import c.universe._
     val targetTpe = weakTypeOf[T]
@@ -79,13 +79,13 @@ object Macros {
       .filter(v => targetFieldNames.contains(v.name.toString))
 
     val targetFieldValidatorsWrongType =
-      targetFieldValidators.filter{x => !x.returnType.<:<(typeOf[ValidationResult])}
+      targetFieldValidators.filter { x => !x.returnType.<:<(typeOf[ValidationResult]) }
     if (targetFieldValidatorsWrongType.nonEmpty) {
       c.abort(
         c.enclosingPosition,
         s"Field validators do not all return torstenrudolf.scalajs.react.formbinder.ValidationResult check ${targetFieldValidatorsWrongType.map(_.name.toString)}")
     }
-    if (!targetFieldValidators.forall{x =>
+    if (!targetFieldValidators.forall { x =>
       x.paramLists.size == 1 ||
         x.paramLists.head.head.name == x.name ||
         x.paramLists.head.head.info == targetFields.find(_.name.toString == x.name.toString).get.info ||
@@ -202,7 +202,7 @@ object Macros {
 
       }
     """
-//    println(show(newTree))
+    //    println(show(newTree))
     c.Expr[Form[T]](newTree)
   }
 
@@ -218,6 +218,7 @@ case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
 
   private var _currentRawValue: Option[O] = defaultValue
   private var _currentValidationResult: ValidationResult = ValidationResult.Success
+  private var _showUnitializedError: Boolean = false
 
   def currentRawValue = _currentRawValue
 
@@ -240,45 +241,45 @@ case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
   }
 
   def reset(): Callback = {
-//    println(s"$fieldName: resetting")
+    //    println(s"$fieldName: resetting")
     _currentRawValue = defaultValue
     parentForm.onChangeCB()
   }
 
   def clear(): Callback = {
-//    println(s"$fieldName: clearing")
+    //    println(s"$fieldName: clearing")
     _currentRawValue = None
     parentForm.onChangeCB()
   }
 
   def updateValue(v: O): Callback = {
-//    println(s"$fieldName: updateValue: $v")
+    //    println(s"$fieldName: updateValue: $v")
     _currentRawValue = Some(v)
     validate()
     parentForm.onChangeCB()
   }
 
   def showUninitializedError: Callback = {
-    validate(showUninitializedError = true)
-    parentForm.onChangeCB(showUninitializedErrors = true)
+    _showUnitializedError = true
+    validate()
+    parentForm.onChangeCB()
   }
 
-  def validate(showUninitializedError: Boolean = false): Unit = {
+  def validate(): Unit = {
     _currentRawValue match {
       case Some(v) =>
         _currentValidationResult = transformedTargetFieldValidator.map(_.apply(v, parentForm)).getOrElse(ValidationResult.Success)
-      case None if showUninitializedError =>
-        _currentValidationResult = ValidationResult.withError("required")
+      case None if _showUnitializedError => _currentValidationResult = ValidationResult.withError("required")
       case None => _currentValidationResult = ValidationResult.Success
     }
-//    println(s"$fieldName: raw: ${_currentRawValue}, validationResult: ${_currentValidationResult}, $showUninitializedError")
+    //    println(s"$fieldName: raw: ${_currentRawValue}, validationResult: ${_currentValidationResult}, $showUninitializedError")
 
   }
 
 }
 
 trait FormAPI[T] extends Form[T] {
-  var isInitializing: Boolean
+  protected var isInitializing: Boolean
   val formLayout: FormLayout[T]
 
   def globalValidator(data: T): ValidationResult
@@ -290,9 +291,9 @@ trait FormAPI[T] extends Form[T] {
     }
   }
 
-  def onChangeCB(showUninitializedErrors: Boolean = false): japgolly.scalajs.react.Callback = {
+  def onChangeCB(): japgolly.scalajs.react.Callback = {
     if (!isInitializing) {
-      allFormFieldBindings.foreach(_.validate(showUninitializedError = showUninitializedErrors))
+      allFormFieldBindings.foreach(_.validate())
       validatedCurrentData match {
         case (dataOption, validationResult) =>
           formLayout.onChange(dataOption, allFieldValidationResults, validationResult)

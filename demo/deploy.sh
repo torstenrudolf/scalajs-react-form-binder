@@ -14,7 +14,8 @@ cd $projectPath
 git checkout master
 git pull
 git checkout gh-pages
-git reset --hard master
+git merge
+git merge master
 
 sbt clean
 
@@ -34,4 +35,4 @@ git add ${projectPath}
 
 git commit -m "$comment"
 
-echo "all you need to do is to 'git push --force'"
+echo "all you need to do is to 'git push'"

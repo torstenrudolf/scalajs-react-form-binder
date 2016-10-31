@@ -4,7 +4,7 @@ import org.scalajs.dom
 
 import scala.scalajs.js.annotation.JSExport
 import japgolly.scalajs.react.extra.router._
-import torstenrudolf.scalajs.react.formbinder.demo.components.{SimpleDemo, SimpleMuiDemo}
+import torstenrudolf.scalajs.react.formbinder.demo.components.{InterdependentFieldsMuiDemo, SimpleDemo, SimpleMuiDemo}
 
 
 /**
@@ -27,6 +27,7 @@ object AppRouter {
 
   case object Simple extends AppPage
   case object SimpleMui extends AppPage
+  case object ComplexMui extends AppPage
 
   type AppRouterCtrl = RouterCtl[AppPage]
 
@@ -37,10 +38,11 @@ object AppRouter {
       | staticRedirect(root) ~> redirectToPage(Simple)(Redirect.Replace)
       | staticRoute("#simple", Simple) ~> render(SimpleDemo())
       | staticRoute("#simple-mui", SimpleMui) ~> render(SimpleMuiDemo())
+      | staticRoute("#complex-mui", ComplexMui) ~> render(InterdependentFieldsMuiDemo())
       )
       .notFound(redirectToPage(Simple)(Redirect.Replace))
       .verify(// ensure all pages are configured and valid, see: https://github.com/japgolly/scalajs-react/blob/master/doc/ROUTER.md#a-spot-of-unsafeness
-        Simple
+        Simple, SimpleMui, ComplexMui
       )
       .renderWith(layout)
   }
@@ -50,7 +52,8 @@ object AppRouter {
 
   def mainMenuItems = Vector(
     MenuItem("Simple", Simple),
-    MenuItem("Material-UI", SimpleMui)
+    MenuItem("Material-UI", SimpleMui),
+    MenuItem("Dependent Fields", ComplexMui)
   )
 
   def layout(c: RouterCtl[AppPage], r: Resolution[AppPage]) = {

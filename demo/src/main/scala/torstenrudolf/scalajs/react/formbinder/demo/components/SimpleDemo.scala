@@ -39,7 +39,7 @@ object SimpleDemo {
     }
 
     // this does the magic and binds the data model, validation rules and formlayout together
-    val form = bind[Data](DataValidation, FormLayout)
+    val form = bind[Data](FormLayout, DataValidation)
 
     // use it like this:
     val handleSubmit: Callback = $.state >>= {
@@ -50,7 +50,7 @@ object SimpleDemo {
     }
 
     // you have full control over the display of the form fields
-    def render(state: State) = CodeExample(code, "SimpleFormDemo")(
+    def render(state: State) = CodeExample(code, "Simple Form")(
       <.div(
         <.form(
           ^.onSubmit --> handleSubmit,
