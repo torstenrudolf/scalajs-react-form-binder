@@ -1,4 +1,7 @@
-# FormBinder
+# FormBinder [![Build Status][travis-badge]][travis-link]
+
+[travis-badge]: https://travis-ci.org/torstenrudolf/scalajs-react-form-binder.svg
+[travis-link]: https://travis-ci.org/torstenrudolf/scalajs-react-form-binder
 
 FormBinder is a tool to bind
 [scalajs-react](https://github.com/japgolly/scalajs-react)
