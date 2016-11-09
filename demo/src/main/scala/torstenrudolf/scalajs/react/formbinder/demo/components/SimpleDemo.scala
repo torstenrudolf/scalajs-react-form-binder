@@ -23,34 +23,45 @@ object SimpleDemo {
     def password(password: String): ValidationResult = Validator(password.nonEmpty, "Please specify password")
   }
 
-  case class State(data: Option[Data] = None)
+  // then define the form layout fields -- names must match the data model's field names
+  object FormLayout extends FormLayout[Data] {
+    val username = TextField("Username")
+    val password = TextField("Password", isPassword = true)
 
-  class Backend($: BackendScope[Unit, State]) {
-
-    // then define the form layout fields -- names must match the data model's field names
-    object FormLayout extends FormLayout[Data] {
-      val username = TextField("Username")
-      val password = TextField("Password", isPassword = true)
-
-      // define what to do after form data or form validation changes
-      def onChange(validatedData: Option[Data],
-                   allFieldValidationResults: List[ValidationResult],
-                   globalFormValidationResult: ValidationResult): Callback = $.modState(_.copy(data = validatedData))
+    // the FormFieldDescriptor that defines error display and binds the onChangeCB to the field
+    private def TextField(labelText: String, isPassword: Boolean = false) = {
+      val tpe = if (isPassword) "password" else "text"
+      FormFieldDescriptor((a: FormFieldArgs[String]) =>
+        <.div(
+          <.label(labelText),
+          <.input(
+            ^.onChange ==> { (e: ReactEventI) => a.onChangeCB(e.target.value) },
+            ^.value := a.currentValue,
+            ^.`type` := tpe
+          ),
+          !a.currentValidationResult.isValid ?= <.span(^.color:="red")(a.currentValidationResult.errorMessage)
+        )
+      )
     }
+  }
 
-    // this does the magic and binds the data model, validation rules and formlayout together
-    val form = bind[Data](FormLayout, DataValidation)
+  // this does the magic and binds the data model, validation rules and formlayout together
+  val form = bind[Data](FormLayout, DataValidation)
+
+  class Backend($: BackendScope[Unit, Unit]) {
 
     // use it like this:
-    val handleSubmit: Callback = $.state >>= {
-      _.data match {
-        case Some(data) => Callback.alert(s"do what you need to do with $data")
-        case None => form.showUninitializedFieldErrors
+    def handleSubmit: Callback = {
+      form.fullValidate >> {
+        form.validatedFormData match {
+          case Some(data) => Callback.alert(s"do what you need to do with $data")
+          case _ => Callback.empty
+        }
       }
     }
 
     // you have full control over the display of the form fields
-    def render(state: State) = CodeExample(code, "Simple Form")(
+    def render() = CodeExample(code, "Simple Form")(
       <.div(
         <.form(
           ^.onSubmit --> handleSubmit,
@@ -61,24 +72,11 @@ object SimpleDemo {
             form.field(FormLayout.username),
             form.field(FormLayout.password)
           ),
-          <.div(<.button("Submit"))
+          <.div(
+            <.button("Submit")
+          ),
+          <.div(^.color := "red")(form.globalValidationMessage)
         )
-      )
-    )
-  }
-
-  // the FormFieldDescriptor that defines error display and binds the onChangeCB to the field
-  def TextField(labelText: String, isPassword: Boolean = false) = {
-    val tpe = if (isPassword) "password" else "text"
-    FormFieldDescriptor((a: FormFieldArgs[String]) =>
-      <.div(
-        <.label(labelText),
-        <.input(
-          ^.onChange ==> { (e: ReactEventI) => a.onChangeCB(e.target.value) },
-          ^.value := a.currentValue,
-          ^.`type` := tpe
-        ),
-        !a.currentValidationResult.isValid ?= <.span(^.color:="red")(a.currentValidationResult.errorMessage)
       )
     )
   }
@@ -86,7 +84,7 @@ object SimpleDemo {
   // EXAMPLE:END
 
   val component = ReactComponentB[Unit]("SimpleFormDemo")
-    .initialState(State())
+    .stateless
     .renderBackend[Backend]
     .build
 

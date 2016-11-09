@@ -1,6 +1,9 @@
 package torstenrudolf.scalajs.react.formbinder
 
-import japgolly.scalajs.react.{Callback, ReactNode}
+import japgolly.scalajs.react.{BackendScope, Callback, ReactComponentB, ReactNode}
+import japgolly.scalajs.react.vdom.prefix_<^._
+
+import scala.scalajs.js
 
 
 object Macros {
@@ -171,12 +174,12 @@ object Macros {
         override var isInitializing: Boolean = true
 
         private case class FieldBindingsHolder(..${compoundFields.map(_.formFieldBindingValDef)})
-        private val fieldBindingsHolder = new FieldBindingsHolder(..${compoundFields.map(f => q"""torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${f.fieldType}]($formLayout.${f.formFieldDescriptor}, ${f.defaultValueExpr}, ${f.transformedTargetFieldValidator}, this, ${f.name})""")})
+        private val fieldBindingsHolder = new FieldBindingsHolder(..${compoundFields.map(f => q"""torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${f.fieldType}]($formLayout.${f.formFieldDescriptor}, ${f.defaultValueExpr}, ${f.targetField.info =:= typeOf[String]}, ${f.transformedTargetFieldValidator}, this, ${f.name})""")})
 
         val allFormFieldBindings = ${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}")}
 
         isInitializing = false
-        onChangeCB().runNow()  // update default values
+        onChangeCB.runNow()  // update default values
 
         override def currentUnvalidated: scala.util.Try[$targetTpe] = {
           val fieldValues = allFormFieldBindings.map(_.currentValidatedValue)
@@ -208,115 +211,169 @@ object Macros {
 
 }
 
+object FormField {
 
-case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
-                               defaultValue: Option[O],
-                               transformedTargetFieldValidator: Option[(O, FormAPI[_]) => ValidationResult],
-                               parentForm: Form[_] with FormAPI[_],
-                               fieldName: String) {
+  case class Props[O](formFieldDescriptor: FormFieldDescriptor[O],
+                      onChangeCB: (Option[O]) => Callback,
+                      defaultValue: Option[O],
+                      fieldName: String,
+                      valueIsString: Boolean,
+                      validator: (O) => ValidationResult,
+                      parentForm: Form[_] with FormAPI[_])
 
-
-  private var _currentRawValue: Option[O] = defaultValue
-  private var _currentValidationResult: ValidationResult = ValidationResult.Success
-  private var _showUnitializedError: Boolean = false
-
-  def currentRawValue = _currentRawValue
-
-  def currentValidatedValue: Option[O] = _currentValidationResult match {
-    case vr if vr.isValid => _currentRawValue
-    case _ => None
+  case class State[O](currentValidationResult: ValidationResult = ValidationResult.Success,
+                      currentRawValue: Option[O] = None,
+                      showUnitializedError: Boolean = false) {
+    val currentValidatedValue: Option[O] = if (currentValidationResult.isValid) currentRawValue else None
   }
 
-  def currentValidationResult = _currentValidationResult
+  class Backend[O]($: BackendScope[Props[O], State[O]]) {
+    //      def update(currentValidatedValue: Option[O], currentValidationResult: ValidationResult) =
+    //        $.setState(State(currentValidatedValue = currentValidatedValue, currentValidationResult = currentValidationResult))
 
-  def formField: ReactNode = {
-    formFieldDescriptor.descr(FormFieldArgs[O](
-      currentValue = currentValidatedValue,
-      currentValidationResult = currentValidationResult,
-      onChangeCB = (v: O) => updateValue(v),
-      resetCB = reset,
-      clearCB = clear,
-      fieldName = fieldName,
-      parentForm = parentForm))
-  }
+    def validate(showUnitializedError: Boolean = false): Callback = $.state.zip($.props) >>= { case (state, props) =>
+      val showUnitializedErrorX = showUnitializedError || state.showUnitializedError
+      val valueToValidate =
+        if (showUnitializedErrorX && state.currentRawValue.isEmpty && props.valueIsString) {
+          // todo: introduce a generic uninitializedValue for all value types
+          Some("".asInstanceOf[O])
+        }
+        else state.currentRawValue
 
-  def reset(): Callback = {
-    //    println(s"$fieldName: resetting")
-    _currentRawValue = defaultValue
-    parentForm.onChangeCB()
-  }
+      val validationResult = valueToValidate match {
+        case Some(v) => props.validator(v)
+        case None if showUnitializedErrorX => ValidationResult.withError("required") // todo: make required error string configurable
+        case None => ValidationResult.Success
+      }
 
-  def clear(): Callback = {
-    //    println(s"$fieldName: clearing")
-    _currentRawValue = None
-    parentForm.onChangeCB()
-  }
-
-  def updateValue(v: O): Callback = {
-    //    println(s"$fieldName: updateValue: $v")
-    _currentRawValue = Some(v)
-    validate()
-    parentForm.onChangeCB()
-  }
-
-  def showUninitializedError: Callback = {
-    _showUnitializedError = true
-    validate()
-    parentForm.onChangeCB()
-  }
-
-  def validate(): Unit = {
-    _currentRawValue match {
-      case Some(v) =>
-        _currentValidationResult = transformedTargetFieldValidator.map(_.apply(v, parentForm)).getOrElse(ValidationResult.Success)
-      case None if _showUnitializedError => _currentValidationResult = ValidationResult.withError("required")
-      case None => _currentValidationResult = ValidationResult.Success
+      $.modState(_.copy(currentValidationResult = validationResult, showUnitializedError = showUnitializedErrorX))
     }
-    //    println(s"$fieldName: raw: ${_currentRawValue}, validationResult: ${_currentValidationResult}, $showUninitializedError")
 
+    private def onChangeCB: Callback =
+      $.state.zip($.props) >>= { case (state, props) => props.onChangeCB(state.currentValidatedValue) }
+
+    def updateRawValue(v: Option[O]): Callback = {
+      $.modState(_.copy(currentRawValue = v), cb = validate() >> onChangeCB)
+    }
+
+    def clear: Callback = $.modState(_.copy(showUnitializedError = false), cb = updateRawValue(None))
+
+    def resetToDefault: Callback = $.modState(_.copy(showUnitializedError = false), cb = {$.props >>= { props => updateRawValue(props.defaultValue) }})
+
+    def currentValidatedValue: Option[O] = $.state.runNow().currentValidatedValue
+
+    def render(props: Props[O], state: State[O]) = <.div(
+      props.formFieldDescriptor.descr(
+        FormFieldArgs[O](
+          currentValue = state.currentRawValue,
+          currentValidationResult = state.currentValidationResult,
+          onChangeCB = (v: O) => updateRawValue(Some(v)),
+          resetToDefaultCB = resetToDefault,
+          clearCB = clear,
+          fieldName = props.fieldName,
+          parentForm = props.parentForm)
+      )
+    )
   }
 
 }
 
+case class FormField[O](parentBinding: FormFieldBinding[O]) {
+
+  val component = ReactComponentB[FormField.Props[O]]("FormField")
+    .initialState(FormField.State[O]())
+    .renderBackend[FormField.Backend[O]]
+    .componentDidMount(scope =>
+      Callback {parentBinding.setFormFieldBackend(scope.backend)} >>
+        scope.modState(_.copy(currentRawValue = scope.props.defaultValue))
+    )
+    .build
+
+  def apply(formFieldDescriptor: FormFieldDescriptor[O],
+            onChangeCB: (Option[O]) => Callback,
+            defaultValue: Option[O],
+            fieldName: String,
+            valueIsString: Boolean,
+            validator: (O) => ValidationResult,
+            parentForm: Form[_] with FormAPI[_],
+            key: js.UndefOr[js.Any] = js.undefined,
+            ref: js.UndefOr[String] = js.undefined) = {
+    component.set(key, ref)(FormField.Props[O](formFieldDescriptor, onChangeCB, defaultValue, fieldName, valueIsString, validator, parentForm))
+  }
+}
+
+case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
+                               private val defaultValue: Option[O],
+                               private val isString: Boolean,
+                               transformedTargetFieldValidator: Option[(O, FormAPI[_]) => ValidationResult],
+                               private val parentForm: Form[_] with FormAPI[_],
+                               fieldName: String) {
+
+  def currentValidatedValue: Option[O] = formFieldBackend.flatMap(_.currentValidatedValue)
+
+  def validate(showUninitializedError: Boolean): Callback = formFieldBackend.map(_.validate(showUninitializedError)).getOrElse(Callback.info("backend not set yet"))
+
+  def updateValue(v: O): Callback = formFieldBackend.map(_.updateRawValue(Some(v))).getOrElse(Callback.info("backend not set yet"))
+
+  def clear: Callback = formFieldBackend.map(_.clear).getOrElse(Callback.info("backend not set yet"))
+
+  def resetToDefault: Callback = formFieldBackend.map(_.resetToDefault).getOrElse(Callback.info("backend not set yet"))
+
+  private val formFieldComp = FormField[O](this)
+
+  private var formFieldBackend: Option[FormField.Backend[O]] = None
+
+  def setFormFieldBackend(backend: FormField.Backend[O]) = {
+    formFieldBackend = Some(backend)
+  }
+
+  def formField: ReactNode = formFieldComp(
+    formFieldDescriptor = formFieldDescriptor,
+    onChangeCB = (v: Option[O]) => parentForm.onChangeCB,
+    defaultValue = defaultValue,
+    fieldName = fieldName,
+    valueIsString = isString,
+    validator = transformedTargetFieldValidator.map(v => (x: O) => v(x, parentForm)).getOrElse((_: O) => ValidationResult.Success),
+    parentForm = parentForm)
+
+}
+
+
 trait FormAPI[T] extends Form[T] {
   protected var isInitializing: Boolean
-  val formLayout: FormLayout[T]
+  protected val formLayout: FormLayout[T]
 
-  def globalValidator(data: T): ValidationResult
+  protected def globalValidator(data: T): ValidationResult
 
-  def validate(data: T): (Option[T], ValidationResult) = {
+  private def validate(data: T): (Option[T], ValidationResult) = {
     globalValidator(data) match {
       case r if !r.isValid => (None, r)
       case _ => (Some(data), ValidationResult.Success)
     }
   }
 
-  def onChangeCB(): japgolly.scalajs.react.Callback = {
-    if (!isInitializing) {
-      allFormFieldBindings.foreach(_.validate())
-      validatedCurrentData match {
-        case (dataOption, validationResult) =>
-          formLayout.onChange(dataOption, allFieldValidationResults, validationResult)
-      }
-    } else {
-      japgolly.scalajs.react.Callback.empty
-    }
+  private def validateAllFields(showUninitializedError: Boolean): Callback =
+    allFormFieldBindings.map(_.validate(showUninitializedError = showUninitializedError)).reduce {_ >> _}
+
+  override def fullValidate: Callback = {
+    validateAllFields(showUninitializedError = true)
   }
 
-  def currentUnvalidated: scala.util.Try[T]
+  protected def currentUnvalidated: scala.util.Try[T]
 
-  def validatedCurrentData: (Option[T], ValidationResult) = {
+  private def validatedCurrentData: (Option[T], ValidationResult) = {
+    // todo: optimize so we don't run this unnecessarily
     currentUnvalidated match {
       case scala.util.Success(d) => validate(d)
-      case scala.util.Failure(f) => (None, ValidationResult.Success)
+      case scala.util.Failure(f) => (None, ValidationResult.Success) //ValidationResult.withError("Please fill in required fields."))
     }
   }
 
-  def showUninitializedFieldErrors: Callback = allFormFieldBindings.map(_.showUninitializedError).reduce {_ >> _}
+  override def validatedFormData: Option[T] = validatedCurrentData._1
 
-  val allFormFieldBindings: List[FormFieldBinding[_]]
+  protected def allFormFieldBindings: List[FormFieldBinding[_]]
 
-  def allFieldValidationResults: List[ValidationResult] = allFormFieldBindings.map(_.currentValidationResult)
+  //  private def allFieldValidationResults: List[ValidationResult] = allFormFieldBindings.map(_.currentValidationResult)
 
   override def field[A](fd: torstenrudolf.scalajs.react.formbinder.FormFieldDescriptor[A]): ReactNode =
     fieldBinding(fd).formField
@@ -325,7 +382,32 @@ trait FormAPI[T] extends Form[T] {
 
   override def fieldValue[A](fd: FormFieldDescriptor[A]): Option[A] = fieldBinding(fd).currentValidatedValue
 
+  override def clearField[A](fd: FormFieldDescriptor[A]): Callback = fieldBinding(fd).clear
+
+  override def clearAllFields: Callback = allFormFieldBindings.map(_.clear).reduce {_ >> _}
+
+  override def resetFieldToDefault[A](fd: FormFieldDescriptor[A]): Callback = fieldBinding(fd).resetToDefault
+
+  override def resetAllFields: Callback = allFormFieldBindings.map(_.resetToDefault).reduce {_ >> _}
+
   override def setFieldValue[A](fd: torstenrudolf.scalajs.react.formbinder.FormFieldDescriptor[A], value: A): Callback =
     fieldBinding(fd).updateValue(value)
+
+  def onChangeCB: Callback = {
+    validateAllFields(showUninitializedError = false) >>
+      forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
+  }
+
+  private var forceGlobalValidationMessageUpdate: Option[Callback] = None
+
+  override def globalValidationMessage: ReactNode = {
+    val component = ReactComponentB[Unit]("FormGlobalError")
+      .stateless
+      .render(scope => <.div(validatedCurrentData._2.errorMessage))
+      .componentDidMount(scope => Callback {forceGlobalValidationMessageUpdate = Some(scope.forceUpdate)})
+      .build
+
+    component()
+  }
 
 }
