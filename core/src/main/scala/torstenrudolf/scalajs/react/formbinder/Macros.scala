@@ -389,9 +389,9 @@ trait FormAPI[T] extends Form[T] {
   override def fullValidate: Callback = Callback {validate(showUninitializedError = true)}
 
   def onChangeCB: Callback = {
-    Callback(validate(showUninitializedError = false)) >>
-      forceGlobalValidationMessageUpdate.getOrElse(Callback.empty) >>
-      formLayout.onChange(validatedData = _validatedFormData)
+    validate(showUninitializedError = false)
+    formLayout.onChange(validatedData = _validatedFormData) >>
+      forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
   }
 
   override def validatedFormData: Option[T] = {
