@@ -4,6 +4,7 @@ import japgolly.scalajs.react.{BackendScope, Callback, ReactComponentB, ReactNod
 import japgolly.scalajs.react.vdom.prefix_<^._
 
 import scala.scalajs.js
+import scala.util.{Failure, Success, Try}
 
 
 object Macros {
@@ -311,13 +312,13 @@ case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
 
   def currentValidatedValue: Option[O] = formFieldBackend.flatMap(_.currentValidatedValue)
 
-  def validate(showUninitializedError: Boolean): Callback = formFieldBackend.map(_.validate(showUninitializedError)).getOrElse(Callback.info("backend not set yet"))
+  def validate(showUninitializedError: Boolean): Try[Callback] = Try(formFieldBackend.get.validate(showUninitializedError))
 
-  def updateValue(v: O): Callback = formFieldBackend.map(_.updateRawValue(Some(v))).getOrElse(Callback.info("backend not set yet"))
+  def updateValue(v: O): Try[Callback] = Try(formFieldBackend.get.updateRawValue(Some(v)))
 
-  def clear: Callback = formFieldBackend.map(_.clear).getOrElse(Callback.info("backend not set yet"))
+  def clear: Try[Callback] = Try(formFieldBackend.get.clear)
 
-  def resetToDefault: Callback = formFieldBackend.map(_.resetToDefault).getOrElse(Callback.info("backend not set yet"))
+  def resetToDefault: Try[Callback] = Try(formFieldBackend.get.resetToDefault)
 
   private val formFieldComp = FormField[O](this)
 
@@ -343,37 +344,50 @@ trait FormAPI[T] extends Form[T] {
   protected var isInitializing: Boolean
   protected val formLayout: FormLayout[T]
 
+  private var _validatedFormData: Option[T] = None
+  private var _formGlobalValidationResult: Option[ValidationResult] = None
+
   protected def globalValidator(data: T): ValidationResult
-
-  private def validate(data: T): (Option[T], ValidationResult) = {
-    globalValidator(data) match {
-      case r if !r.isValid => (None, r)
-      case _ => (Some(data), ValidationResult.Success)
-    }
-  }
-
-  private def validateAllFields(showUninitializedError: Boolean): Callback =
-    allFormFieldBindings.map(_.validate(showUninitializedError = showUninitializedError)).reduce {_ >> _}
-
-  override def fullValidate: Callback = {
-    validateAllFields(showUninitializedError = true)
-  }
 
   protected def currentUnvalidated: scala.util.Try[T]
 
-  private def validatedCurrentData: (Option[T], ValidationResult) = {
-    // todo: optimize so we don't run this unnecessarily
-    currentUnvalidated match {
-      case scala.util.Success(d) => validate(d)
-      case scala.util.Failure(f) => (None, ValidationResult.Success) //ValidationResult.withError("Please fill in required fields."))
+  private def validate(showUninitializedError: Boolean): Unit = {
+    val fieldValidationSucceeded = validateAllFields(showUninitializedError = showUninitializedError) match {
+      case Success(_) => currentUnvalidated match {
+        case Success(data) => globalValidator(data) match {
+          case r if !r.isValid =>
+            _validatedFormData = None
+            _formGlobalValidationResult = Some(r)
+          case _ =>
+            _validatedFormData = Some(data)
+            _formGlobalValidationResult = Some(ValidationResult.Success)
+        }
+        case Failure(e) =>
+          _validatedFormData = None
+          _formGlobalValidationResult = None
+      }
+      case Failure(_) =>
+        _validatedFormData = None
+        _formGlobalValidationResult = None
     }
+
   }
 
-  override def validatedFormData: Option[T] = validatedCurrentData._1
+  private def validateAllFields(showUninitializedError: Boolean): Try[Unit] =
+    Try(allFormFieldBindings.map(_.validate(showUninitializedError = showUninitializedError).get).reduce {_ >> _}.runNow())
+
+  override def fullValidate: Callback = Callback {validate(showUninitializedError = true)}
+
+  def onChangeCB: Callback = {
+    Callback(validate(showUninitializedError = false)) >> forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
+  }
+
+  override def validatedFormData: Option[T] = {
+    validate(showUninitializedError = true)
+    _validatedFormData
+  }
 
   protected def allFormFieldBindings: List[FormFieldBinding[_]]
-
-  //  private def allFieldValidationResults: List[ValidationResult] = allFormFieldBindings.map(_.currentValidationResult)
 
   override def field[A](fd: torstenrudolf.scalajs.react.formbinder.FormFieldDescriptor[A]): ReactNode =
     fieldBinding(fd).formField
@@ -382,28 +396,44 @@ trait FormAPI[T] extends Form[T] {
 
   override def fieldValue[A](fd: FormFieldDescriptor[A]): Option[A] = fieldBinding(fd).currentValidatedValue
 
-  override def clearField[A](fd: FormFieldDescriptor[A]): Callback = fieldBinding(fd).clear
+  override def clearField[A](fd: FormFieldDescriptor[A]): Callback = fieldBinding(fd).clear match {
+    case Success(cb) => cb
+    case Failure(e) => throw FormUninitialized
+  }
 
-  override def clearAllFields: Callback = allFormFieldBindings.map(_.clear).reduce {_ >> _}
+  override def clearAllFields: Callback = {
+    // note: this calls FormAPI.onChangeCB and therefore FormAPI.validate N times (N = number of form fields)
+    //  this could become slow for big forms and we might need to improve this
+    Try(allFormFieldBindings.map(_.clear.get).reduce {_ >> _}) match {
+      case Success(cb) => cb
+      case Failure(e) => throw FormUninitialized
+    }
+  }
 
-  override def resetFieldToDefault[A](fd: FormFieldDescriptor[A]): Callback = fieldBinding(fd).resetToDefault
+  override def resetFieldToDefault[A](fd: FormFieldDescriptor[A]): Callback = fieldBinding(fd).resetToDefault match {
+    case Success(cb) => cb
+    case Failure(e) => throw FormUninitialized
+  }
 
-  override def resetAllFields: Callback = allFormFieldBindings.map(_.resetToDefault).reduce {_ >> _}
+  override def resetAllFields: Callback = Try(allFormFieldBindings.map(_.resetToDefault.get).reduce {_ >> _}) match {
+    // note: this calls FormAPI.onChangeCB and therefore FormAPI.validate N times (N = number of form fields)
+    //  this could become slow for big forms and we might need to improve this
+    case Success(cb) => cb
+    case Failure(e) => throw FormUninitialized
+  }
 
   override def setFieldValue[A](fd: torstenrudolf.scalajs.react.formbinder.FormFieldDescriptor[A], value: A): Callback =
-    fieldBinding(fd).updateValue(value)
-
-  def onChangeCB: Callback = {
-    validateAllFields(showUninitializedError = false) >>
-      forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
-  }
+    fieldBinding(fd).updateValue(value) match {
+      case Success(cb) => cb
+      case Failure(e) => throw FormUninitialized
+    }
 
   private var forceGlobalValidationMessageUpdate: Option[Callback] = None
 
   override def globalValidationMessage: ReactNode = {
     val component = ReactComponentB[Unit]("FormGlobalError")
       .stateless
-      .render(scope => <.div(validatedCurrentData._2.errorMessage))
+      .render(scope => <.div(_formGlobalValidationResult.nonEmpty ?= <.div(_formGlobalValidationResult.get.errorMessage)))
       .componentDidMount(scope => Callback {forceGlobalValidationMessageUpdate = Some(scope.forceUpdate)})
       .build
 

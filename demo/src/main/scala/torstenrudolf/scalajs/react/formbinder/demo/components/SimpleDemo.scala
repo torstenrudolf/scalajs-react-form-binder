@@ -52,11 +52,9 @@ object SimpleDemo {
 
     // use it like this:
     def handleSubmit: Callback = {
-      form.fullValidate >> {
-        form.validatedFormData match {
-          case Some(data) => Callback.alert(s"do what you need to do with $data")
-          case _ => Callback.empty
-        }
+      form.validatedFormData match {
+        case Some(data) => Callback.alert(s"do what you need to do with $data")
+        case _ => Callback.empty
       }
     }
 
