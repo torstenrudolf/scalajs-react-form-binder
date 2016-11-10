@@ -1,6 +1,6 @@
 package torstenrudolf.scalajs.react.formbinder
 
-import japgolly.scalajs.react.{BackendScope, Callback, ReactComponentB, ReactNode}
+import japgolly.scalajs.react.{BackendScope, Callback, CallbackTo, ReactComponentB, ReactNode}
 import japgolly.scalajs.react.vdom.prefix_<^._
 
 import scala.scalajs.js
@@ -222,17 +222,13 @@ object FormField {
                       validator: (O) => ValidationResult,
                       parentForm: Form[_] with FormAPI[_])
 
-  case class State[O](currentValidationResult: ValidationResult = ValidationResult.Success,
+  case class State[O](currentValidationResult: Option[ValidationResult] = None,
                       currentRawValue: Option[O] = None,
-                      showUnitializedError: Boolean = false) {
-    val currentValidatedValue: Option[O] = if (currentValidationResult.isValid) currentRawValue else None
-  }
+                      showUnitializedError: Boolean = false)
 
   class Backend[O]($: BackendScope[Props[O], State[O]]) {
-    //      def update(currentValidatedValue: Option[O], currentValidationResult: ValidationResult) =
-    //        $.setState(State(currentValidatedValue = currentValidatedValue, currentValidationResult = currentValidationResult))
 
-    def validate(showUnitializedError: Boolean = false): Callback = $.state.zip($.props) >>= { case (state, props) =>
+    def validate(showUnitializedError: Boolean = false): CallbackTo[ValidationResult] = $.state.zip($.props) >>= { case (state, props) =>
       val showUnitializedErrorX = showUnitializedError || state.showUnitializedError
       val valueToValidate =
         if (showUnitializedErrorX && state.currentRawValue.isEmpty && props.valueIsString) {
@@ -247,11 +243,11 @@ object FormField {
         case None => ValidationResult.Success
       }
 
-      $.modState(_.copy(currentValidationResult = validationResult, showUnitializedError = showUnitializedErrorX))
+      $.modState(_.copy(currentValidationResult = Some(validationResult), showUnitializedError = showUnitializedErrorX)) >> CallbackTo(validationResult)
     }
 
     private def onChangeCB: Callback =
-      $.state.zip($.props) >>= { case (state, props) => props.onChangeCB(state.currentValidatedValue) }
+      $.state.zip($.props) >>= { case (state, props) => props.onChangeCB(currentValidatedValue) }
 
     def updateRawValue(v: Option[O]): Callback = {
       $.modState(_.copy(currentRawValue = v), cb = validate() >> onChangeCB)
@@ -261,13 +257,20 @@ object FormField {
 
     def resetToDefault: Callback = $.modState(_.copy(showUnitializedError = false), cb = {$.props >>= { props => updateRawValue(props.defaultValue) }})
 
-    def currentValidatedValue: Option[O] = $.state.runNow().currentValidatedValue
+    def currentValidatedValue: Option[O] = {
+      if (currentValidationResult.isValid) $.state.runNow().currentRawValue else None
+    }
+
+    def currentValidationResult: ValidationResult = $.state.runNow().currentValidationResult match {
+      case None => validate().runNow()
+      case Some(vr) => vr
+    }
 
     def render(props: Props[O], state: State[O]) = <.div(
       props.formFieldDescriptor.descr(
         FormFieldArgs[O](
           currentValue = state.currentRawValue,
-          currentValidationResult = state.currentValidationResult,
+          currentValidationResult = currentValidationResult,
           onChangeCB = (v: O) => updateRawValue(Some(v)),
           resetToDefaultCB = resetToDefault,
           clearCB = clear,
@@ -312,7 +315,9 @@ case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
 
   def currentValidatedValue: Option[O] = formFieldBackend.flatMap(_.currentValidatedValue)
 
-  def validate(showUninitializedError: Boolean): Try[Callback] = Try(formFieldBackend.get.validate(showUninitializedError))
+  def currentValidationResult: Try[ValidationResult] = Try(formFieldBackend.get.currentValidationResult)
+
+  def validate(showUninitializedError: Boolean): Try[Callback] = Try(formFieldBackend.get.validate(showUninitializedError).void)
 
   def updateValue(v: O): Try[Callback] = Try(formFieldBackend.get.updateRawValue(Some(v)))
 
@@ -347,6 +352,11 @@ trait FormAPI[T] extends Form[T] {
   private var _validatedFormData: Option[T] = None
   private var _formGlobalValidationResult: Option[ValidationResult] = None
 
+  private def formGlobalValidationResult: ValidationResult = _formGlobalValidationResult match {
+    case Some(vr) => vr
+    case None => throw FormUninitialized
+  }
+
   protected def globalValidator(data: T): ValidationResult
 
   protected def currentUnvalidated: scala.util.Try[T]
@@ -379,13 +389,21 @@ trait FormAPI[T] extends Form[T] {
   override def fullValidate: Callback = Callback {validate(showUninitializedError = true)}
 
   def onChangeCB: Callback = {
-    Callback(validate(showUninitializedError = false)) >> forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
+    Callback(validate(showUninitializedError = false)) >>
+      forceGlobalValidationMessageUpdate.getOrElse(Callback.empty) >>
+      formLayout.onChange(validatedData = _validatedFormData)
   }
 
   override def validatedFormData: Option[T] = {
     validate(showUninitializedError = true)
     _validatedFormData
   }
+
+  private def allFieldValidationResults: List[ValidationResult] = allFormFieldBindings.map(
+    _.currentValidationResult match {
+      case Success(vr) => vr
+      case _ => throw FormUninitialized
+  })
 
   protected def allFormFieldBindings: List[FormFieldBinding[_]]
 

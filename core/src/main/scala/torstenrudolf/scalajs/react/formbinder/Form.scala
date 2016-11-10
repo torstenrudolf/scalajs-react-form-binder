@@ -60,8 +60,8 @@ case class FormFieldDescriptor[T](descr: (FormFieldArgs[T]) => ReactNode)
 
 abstract class FormLayout[T] {
 
-  def onChange(validatedData: Option[T],
-               allFieldValidationResults: List[ValidationResult],
-               globalFormValidationResult: ValidationResult): Callback = Callback.empty
+  // a hook if you need to react on form changes
+  //  this gets triggered every time a field's unvalidated value changes
+  def onChange(validatedData: Option[T]): Callback = Callback.empty
 
 }
