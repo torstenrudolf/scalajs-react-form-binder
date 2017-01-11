@@ -56,7 +56,7 @@ object Macros {
 
     val targetFieldDefaultValues = getCaseClassArgumentsDefaultValues(c)(targetTpe)
 
-    val formFieldDescriptors = formLayout.actualType.decls.map(_.asTerm).filter(_.isAccessor)
+    val formFieldDescriptors = formLayout.actualType.members.map(_.asTerm).filter(_.isAccessor)
       .filter(_.asMethod.returnType.<:<(typeOf[FormFieldDescriptor[_]]))
       .toList
 
@@ -79,7 +79,7 @@ object Macros {
     }
 
     // collect all targetFieldValidators
-    val targetFieldValidators = validatorObject.actualType.decls.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
+    val targetFieldValidators = validatorObject.actualType.members.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
       .filter(v => targetFieldNames.contains(v.name.toString))
 
     val targetFieldValidatorsWrongType =
@@ -108,7 +108,7 @@ object Macros {
 
     val targetFieldValidatorsInfo = targetFieldValidators.map(x => (x.name.toString, (x, x.paramLists.head))).toMap
 
-    val globalTargetValidator = validatorObject.actualType.decls.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
+    val globalTargetValidator = validatorObject.actualType.members.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
       .find(_.name.toString == "$global")
 
     // check for correct type
