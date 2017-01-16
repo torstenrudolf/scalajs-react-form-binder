@@ -182,7 +182,7 @@ object Macros {
         isInitializing = false
         onChangeCB.runNow()  // update default values
 
-        override def currentUnvalidated: scala.util.Try[$targetTpe] = {
+        override def currentValueWithoutGlobalValidation: scala.util.Try[$targetTpe] = {
           val fieldValues = allFormFieldBindings.map(_.currentValidatedValue)
           if (fieldValues.forall(_.nonEmpty)) {
             val d = $targetCompanion.apply(..${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}.currentValidatedValue.get")})
@@ -192,6 +192,13 @@ object Macros {
           }
         }
 
+        override def setModelValue(newModelValue: $targetTpe): japgolly.scalajs.react.Callback = {
+        ${compoundFields.map(f =>
+          q"""fieldBindingsHolder.${f.termName}.updateValue(newModelValue.${f.termName}) match {
+              case scala.util.Success(cb) => cb
+              case scala.util.Failure(e) => throw torstenrudolf.scalajs.react.formbinder.FormUninitialized
+            }""")}.foldLeft(japgolly.scalajs.react.Callback.empty)(_ >> _)
+        }
 
         override def allFields: List[japgolly.scalajs.react.ReactNode] = {
           ${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}.formField")}
@@ -359,11 +366,11 @@ trait FormAPI[T] extends Form[T] {
 
   protected def globalValidator(data: T): ValidationResult
 
-  protected def currentUnvalidated: scala.util.Try[T]
+  protected def currentValueWithoutGlobalValidation: scala.util.Try[T]
 
   private def validate(showUninitializedError: Boolean): Unit = {
     val fieldValidationSucceeded = validateAllFields(showUninitializedError = showUninitializedError) match {
-      case Success(_) => currentUnvalidated match {
+      case Success(_) => currentValueWithoutGlobalValidation match {
         case Success(data) => globalValidator(data) match {
           case r if !r.isValid =>
             _validatedFormData = None

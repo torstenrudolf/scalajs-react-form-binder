@@ -8,6 +8,7 @@ object SimpleMuiDemo {
   val code = GhPagesMacros.exampleSource
 
   // EXAMPLE:START
+  import scala.scalajs.js
   import japgolly.scalajs.react._
   import japgolly.scalajs.react.vdom.prefix_<^._
   import chandu0101.scalajs.react.components.materialui.{MuiRaisedButton, MuiTextField}
@@ -51,6 +52,11 @@ object SimpleMuiDemo {
       }
     }
 
+    def overrideFormData: Callback = {
+      val randInt = (100 * js.Math.random()).toInt
+      form.setModelValue(Data(username = s"John$randInt", password = s"top secret $randInt", age = randInt))
+    }
+
     // you have full control over the display of the form fields
     def render() = {
       CodeExample(code, "Using Material-UI")(
@@ -66,6 +72,7 @@ object SimpleMuiDemo {
               form.field(FormLayout.age)
             ),
             <.div(
+              MuiFlatButton(label = "Override", onClick = (e: ReactEventH) => overrideFormData)(),
               MuiFlatButton(label = "Clear", onClick = (e: ReactEventH) => form.clearAllFields)(),
               MuiFlatButton(label = "Reset", onClick = (e: ReactEventH) => form.resetAllFields)(),
               MuiRaisedButton(label = "Submit", onClick = (e: ReactEventH) => handleSubmit)()

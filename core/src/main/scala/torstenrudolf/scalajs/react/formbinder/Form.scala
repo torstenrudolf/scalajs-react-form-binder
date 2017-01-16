@@ -15,6 +15,8 @@ trait Form[DataModel] {
 
   def allFields: List[ReactNode]
 
+  def setModelValue(newModelValue: DataModel): Callback
+
   def setFieldValue[T](fd: FormFieldDescriptor[T], value: T): Callback
 
   def fieldValue[A](fd: FormFieldDescriptor[A]): Option[A]
