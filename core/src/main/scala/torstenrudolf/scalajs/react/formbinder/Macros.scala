@@ -35,9 +35,23 @@ object Macros {
     c.universe.internal.gen.mkAttributedRef(pre, tpe.typeSymbol.companion)
   }
 
-  def generate[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
+  def generateWithoutDefault[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
                                 (formLayout: c.Expr[FormLayout[T]],
                                  validatorObject: c.Expr[Any]): c.Expr[Form[T]] = {
+    generate[T](c)(formLayout, validatorObject, None)
+  }
+
+  def generateWithDefault[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
+                                (formLayout: c.Expr[FormLayout[T]],
+                                 validatorObject: c.Expr[Any],
+                                 defaultModelValue: c.Expr[T]): c.Expr[Form[T]] = {
+    generate[T](c)(formLayout, validatorObject, Some(defaultModelValue))
+  }
+
+  private def generate[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
+                                         (formLayout: c.Expr[FormLayout[T]],
+                                          validatorObject: c.Expr[Any],
+                                          defaultModelValue: Option[c.Expr[T]]): c.Expr[Form[T]] = {
 
     import c.universe._
     val targetTpe = weakTypeOf[T]
@@ -54,7 +68,15 @@ object Macros {
 
     val targetFieldNames = targetFields.map(_.name.toString)
 
-    val targetFieldDefaultValues = getCaseClassArgumentsDefaultValues(c)(targetTpe)
+//    val targetFieldDefaultValues = getCaseClassArgumentsDefaultValues(c)(targetTpe)
+//    println(s"case class defaults: $targetFieldDefaultValues")
+//    println(s"defaultModelValue: ${defaultModelValue}")
+
+    val targetFieldDefaultValues: c.Expr[Map[String, Any]] =
+      if (defaultModelValue.isDefined) {
+        c.Expr[Map[String, Any]](q"""Map[String, Any](..${targetFields.map(fn => (fn.asTerm.name.toString, q"$defaultModelValue.get.${fn.asTerm.name}"))})""")
+      }
+      else getCaseClassArgumentsDefaultValues(c)(targetTpe)
 
     val formFieldDescriptors = formLayout.actualType.members.map(_.asTerm).filter(_.isAccessor)
       .filter(_.asMethod.returnType.<:<(typeOf[FormFieldDescriptor[_]]))
