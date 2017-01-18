@@ -16,7 +16,7 @@ object SimpleMuiDemo {
   import torstenrudolf.scalajs.react.formbinder._
 
   // the data model
-  case class Data(username: String = "Joe", password: String, age: Int = 18)
+  case class Data(username: String = "Joe", password: String, age: Int)
 
   // define validation rules in separate object -- note: the method names and signatures must match to the data model's
   object DataValidation {

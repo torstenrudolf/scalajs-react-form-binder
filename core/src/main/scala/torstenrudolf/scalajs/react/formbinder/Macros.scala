@@ -10,22 +10,19 @@ import scala.util.{Failure, Success, Try}
 object Macros {
   // Thanks to https://github.com/Voltir/form.rx for the idea!
 
-  def getCaseClassArgumentsDefaultValues(c: scala.reflect.macros.blackbox.Context)(tpe: c.Type): c.Expr[Map[String, Any]] = {
-    // found at http://stackoverflow.com/a/21970758
+  def getDefaultValuesFromCompanionObject(c: scala.reflect.macros.blackbox.Context)(companion: c.Expr[Any]): c.Expr[Map[String, Any]]  = {
     import c.universe._
-    val classSym = tpe.typeSymbol
-    val moduleSym = classSym.companionSymbol
-    val apply = moduleSym.typeSignature.declaration(newTermName("apply")).asMethod
+    val applyMethod = companion.actualType.decls.find(_.name == TermName("apply")).get.asMethod
     // can handle only default parameters from the first parameter list
     // because subsequent parameter lists might depend on previous parameters
-    val kvps = apply.paramss.head.map(_.asTerm).zipWithIndex.flatMap { case (p, i) =>
-      if (!p.isParamWithDefault) None
+    val paramName2DefaultValue = applyMethod.paramLists.head.map(_.asTerm).zipWithIndex.flatMap { case (p, i) =>
+      if (!p.isParamWithDefault) Nil
       else {
-        val getterName = newTermName("apply$default$" + (i + 1))
-        Some(q"${p.name.toString} -> $moduleSym.$getterName")
+        val getterName = TermName("apply$default$" + (i + 1))
+        List(q"${p.name.toString} -> $companion.$getterName")
       }
     }
-    c.Expr[Map[String, Any]](q"Map[String, Any](..$kvps)")
+    c.Expr[Map[String, Any]](q"Map[String, Any](..$paramName2DefaultValue)")
   }
 
   def getCompanion(c: scala.reflect.macros.blackbox.Context)(tpe: c.Type): c.universe.RefTree = {
@@ -36,29 +33,33 @@ object Macros {
   }
 
   def generateWithoutDefault[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
-                                (formLayout: c.Expr[FormLayout[T]],
-                                 validatorObject: c.Expr[Any]): c.Expr[Form[T]] = {
-    generate[T](c)(formLayout, validatorObject, None)
+                                              (formLayout: c.Expr[FormLayout[T]],
+                                               validatorObject: c.Expr[Any]): c.Expr[Form[T]] = {
+    generate[T](c)(formLayout, validatorObject, c.universe.reify(None))
   }
 
   def generateWithDefault[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
-                                (formLayout: c.Expr[FormLayout[T]],
-                                 validatorObject: c.Expr[Any],
-                                 defaultModelValue: c.Expr[T]): c.Expr[Form[T]] = {
-    generate[T](c)(formLayout, validatorObject, Some(defaultModelValue))
+                                           (formLayout: c.Expr[FormLayout[T]],
+                                            validatorObject: c.Expr[Any],
+                                            defaultModelValue: c.Expr[T]): c.Expr[Form[T]] = {
+    generate[T](c)(formLayout, validatorObject, c.universe.reify(Some(defaultModelValue.splice)))
   }
 
-  private def generate[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
-                                         (formLayout: c.Expr[FormLayout[T]],
-                                          validatorObject: c.Expr[Any],
-                                          defaultModelValue: Option[c.Expr[T]]): c.Expr[Form[T]] = {
+  def generate[DataModel: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
+                                        (formLayout: c.Expr[FormLayout[DataModel]],
+                                         validatorObject: c.Expr[Any],
+                                         defaultModelValue: c.Expr[Option[DataModel]]): c.Expr[Form[DataModel]] =
+  {
 
     import c.universe._
-    val targetTpe = weakTypeOf[T]
-    val targetCompanion = getCompanion(c)(targetTpe)
+
+    val dataModelTpe = weakTypeOf[DataModel]
+    val dataModelCompanion =  getCompanion(c)(dataModelTpe) // had problems when using abstract classes
+
 
     //Collect all fields for the target type
-    val targetFields = targetTpe.decls.collectFirst {
+//    val targetFields = dataModelCompanion.actualType.decls.find(_.name == TermName("apply")).get.asMethod.paramLists.head
+    val targetFields = dataModelTpe.decls.collectFirst {
       case m: MethodSymbol if m.isPrimaryConstructor => m
     }.get.paramLists.head
 
@@ -68,15 +69,11 @@ object Macros {
 
     val targetFieldNames = targetFields.map(_.name.toString)
 
-//    val targetFieldDefaultValues = getCaseClassArgumentsDefaultValues(c)(targetTpe)
-//    println(s"case class defaults: $targetFieldDefaultValues")
-//    println(s"defaultModelValue: ${defaultModelValue}")
-
     val targetFieldDefaultValues: c.Expr[Map[String, Any]] =
-      if (defaultModelValue.isDefined) {
-        c.Expr[Map[String, Any]](q"""Map[String, Any](..${targetFields.map(fn => (fn.asTerm.name.toString, q"$defaultModelValue.get.${fn.asTerm.name}"))})""")
-      }
-      else getCaseClassArgumentsDefaultValues(c)(targetTpe)
+      c.Expr[Map[String, Any]](
+        q"""
+           $defaultModelValue.map((dmv: $dataModelTpe)=> Map[String, Any](..${targetFields.map(fn => (fn.asTerm.name.toString, q"dmv.${fn.asTerm.name}"))})).getOrElse(${getDefaultValuesFromCompanionObject(c)(c.Expr[Any](q"$dataModelCompanion"))})
+          """)
 
     val formFieldDescriptors = formLayout.actualType.members.map(_.asTerm).filter(_.isAccessor)
       .filter(_.asMethod.returnType.<:<(typeOf[FormFieldDescriptor[_]]))
@@ -137,7 +134,7 @@ object Macros {
     if (!globalTargetValidator.forall(v => {
       v.returnType.<:<(typeOf[ValidationResult]) &&
         v.paramLists.size == 1 && v.paramLists.head.size == 1 &&
-        v.paramLists.head.head.info == targetTpe
+        v.paramLists.head.head.info == dataModelTpe
     })) {
       c.abort(c.enclosingPosition,
         s"Type of global validator must match the target type. (def $$global(data: ${globalTargetValidator.get.accessed.info.typeArgs}): torstenrudolf.scalajs.react.formbinder.ValidationResult = ...)")
@@ -145,7 +142,7 @@ object Macros {
 
     val transformedGlobalTargetValidator =
       globalTargetValidator.map(v => q"$v")
-        .getOrElse(q"(d: $targetTpe) => torstenrudolf.scalajs.react.formbinder.ValidationResult.Success")
+        .getOrElse(q"(d: $dataModelTpe) => torstenrudolf.scalajs.react.formbinder.ValidationResult.Success")
 
     case class CompoundField(targetField: c.universe.Symbol,
                              defaultValueExpr: c.universe.Tree,
@@ -188,10 +185,10 @@ object Macros {
 
     val newTree =
       q"""
-      new torstenrudolf.scalajs.react.formbinder.Form[$targetTpe] with torstenrudolf.scalajs.react.formbinder.FormAPI[$targetTpe] {
-        override val formLayout: torstenrudolf.scalajs.react.formbinder.FormLayout[$targetTpe] = $formLayout
+      new torstenrudolf.scalajs.react.formbinder.Form[$dataModelTpe] with torstenrudolf.scalajs.react.formbinder.FormAPI[$dataModelTpe] {
+        override val formLayout: torstenrudolf.scalajs.react.formbinder.FormLayout[$dataModelTpe] = $formLayout
 
-        override def globalValidator(data: $targetTpe): torstenrudolf.scalajs.react.formbinder.ValidationResult =
+        override def globalValidator(data: $dataModelTpe): torstenrudolf.scalajs.react.formbinder.ValidationResult =
           ($transformedGlobalTargetValidator)(data)
 
         override var isInitializing: Boolean = true
@@ -199,22 +196,22 @@ object Macros {
         private case class FieldBindingsHolder(..${compoundFields.map(_.formFieldBindingValDef)})
         private val fieldBindingsHolder = new FieldBindingsHolder(..${compoundFields.map(f => q"""torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${f.fieldType}]($formLayout.${f.formFieldDescriptor}, ${f.defaultValueExpr}, ${f.targetField.info =:= typeOf[String]}, ${f.transformedTargetFieldValidator}, this, ${f.name})""")})
 
-        val allFormFieldBindings = ${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}")}
+        val allFormFieldBindings: List[torstenrudolf.scalajs.react.formbinder.FormFieldBinding[_]] = ${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}")}
 
         isInitializing = false
         onChangeCB.runNow()  // update default values
 
-        override def currentValueWithoutGlobalValidation: scala.util.Try[$targetTpe] = {
+        override def currentValueWithoutGlobalValidation: scala.util.Try[$dataModelTpe] = {
           val fieldValues = allFormFieldBindings.map(_.currentValidatedValue)
           if (fieldValues.forall(_.nonEmpty)) {
-            val d = $targetCompanion.apply(..${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}.currentValidatedValue.get")})
+            val d = $dataModelCompanion.apply(..${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}.currentValidatedValue.get")})
             scala.util.Success(d)
           } else {
             scala.util.Failure(torstenrudolf.scalajs.react.formbinder.FormUninitialized)
           }
         }
 
-        override def setModelValue(newModelValue: $targetTpe): japgolly.scalajs.react.Callback = {
+        override def setModelValue(newModelValue: $dataModelTpe): japgolly.scalajs.react.Callback = {
         ${compoundFields.map(f =>
           q"""fieldBindingsHolder.${f.termName}.updateValue(newModelValue.${f.termName}) match {
               case scala.util.Success(cb) => cb
@@ -236,7 +233,7 @@ object Macros {
       }
     """
     //    println(show(newTree))
-    c.Expr[Form[T]](newTree)
+    c.Expr[Form[DataModel]](newTree)
   }
 
 }
