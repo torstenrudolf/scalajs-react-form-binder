@@ -10,9 +10,9 @@ import scala.util.{Failure, Success, Try}
 object Macros {
   // Thanks to https://github.com/Voltir/form.rx for the idea!
 
-  def getDefaultValuesFromCompanionObject(c: scala.reflect.macros.blackbox.Context)(companion: c.Expr[Any]): c.Expr[Map[String, Any]]  = {
+  def getDefaultValuesFromCompanionObject(c: scala.reflect.macros.blackbox.Context)(companion: c.Symbol): c.Expr[Map[String, Any]]  = {
     import c.universe._
-    val applyMethod = companion.actualType.decls.find(_.name == TermName("apply")).get.asMethod
+    val applyMethod = companion.info.decls.find(_.name == TermName("apply")).get.asMethod
     // can handle only default parameters from the first parameter list
     // because subsequent parameter lists might depend on previous parameters
     val paramName2DefaultValue = applyMethod.paramLists.head.map(_.asTerm).zipWithIndex.flatMap { case (p, i) =>
@@ -35,52 +35,95 @@ object Macros {
   def generateWithoutDefault[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
                                               (formLayout: c.Expr[FormLayout[T]],
                                                validatorObject: c.Expr[Any]): c.Expr[Form[T]] = {
-    generate[T](c)(formLayout, validatorObject, c.universe.reify(None))
+    generateFromExplicitValues[T](c)(formLayout, validatorObject, c.universe.reify(None))
+      .asInstanceOf[c.Expr[Form[T]]]  // unnecessary, but idea showed error otherwise
   }
 
   def generateWithDefault[T: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
                                            (formLayout: c.Expr[FormLayout[T]],
                                             validatorObject: c.Expr[Any],
                                             defaultModelValue: c.Expr[T]): c.Expr[Form[T]] = {
-    generate[T](c)(formLayout, validatorObject, c.universe.reify(Some(defaultModelValue.splice)))
+    import c.universe._
+    generateFromExplicitValues[T](c)(formLayout, validatorObject, reify[Option[T]](Some(defaultModelValue.splice)))
+      .asInstanceOf[c.Expr[Form[T]]]  // unnecessary, but idea showed error otherwise
   }
 
-  def generate[DataModel: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
-                                        (formLayout: c.Expr[FormLayout[DataModel]],
-                                         validatorObject: c.Expr[Any],
-                                         defaultModelValue: c.Expr[Option[DataModel]]): c.Expr[Form[DataModel]] =
+  def generateOnFormBinder[DataModel: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context): c.Expr[Form[DataModel]] = {
+    import c.universe._
+
+    val dataModelFields = c.prefix.actualType.members
+      .find(m => m.isClass && m.name == TypeName("DataModel")).get.info.members
+      .collect{case v: TermSymbol => v.asTerm}
+
+    val fields = c.prefix.actualType.members
+      .find(m => m.isClass && m.name == TypeName("DataModel")).get.info.decls
+      .collectFirst {
+        case m: MethodSymbol if m.isPrimaryConstructor => m
+      }.get.paramLists.head
+
+    val defaultModelValue = c.prefix.actualType.members.find(m => m.name == TermName("defaultFormValue")).get
+
+    val dataModelType = c.prefix.actualType.members.find(m => m.isClass && m.name == TypeName("DataModel")).get.asType
+    val formLayout = c.prefix.actualType.members.find(m => m.isTerm && m.name == TermName("formLayout")).get.asTerm
+    val validatorsHolder = c.prefix.actualType.members.find(m => m.isTerm && m.name == TermName("validatorsHolder")).get.asTerm
+    val defaultFormValue = c.prefix.actualType.members.find(m => m.isTerm && m.name == TermName("defaultFormValue")).get.asTerm
+
+    c.Expr[Form[DataModel]](formImpl(c)(dataModelType, formLayout, validatorsHolder, c.Expr[Option[_]](q"$defaultFormValue")))
+
+  }
+
+  def generateFromExplicitValues[DataModel: c.WeakTypeTag](c: scala.reflect.macros.blackbox.Context)
+                                                          (formLayout: c.Expr[FormLayout[DataModel]],
+                                                           validatorsHolder: c.Expr[Any],
+                                                           defaultFormValue: c.Expr[Option[DataModel]]): c.Expr[Form[DataModel]] = {
+    import c.universe._
+    val dataModelTpe = weakTypeOf[DataModel]
+    val dataModelCompanion =  getCompanion(c)(dataModelTpe).symbol // had problems when using abstract classes
+    c.Expr[Form[DataModel]](formImpl(c)(
+      dataModelTpe.typeSymbol,
+      formLayout.tree.symbol,
+      validatorsHolder.tree.symbol,
+      defaultFormValue))
+  }
+
+  def formImpl(c: scala.reflect.macros.blackbox.Context)
+                (dataModelTypeSymbol: c.universe.Symbol,
+                 formLayout: c.universe.Symbol,
+                 validatorsHolder: c.universe.Symbol,
+                 defaultFormValue: c.Expr[Option[_]]): c.universe.Tree =
   {
 
     import c.universe._
 
-    val dataModelTpe = weakTypeOf[DataModel]
-    val dataModelCompanion =  getCompanion(c)(dataModelTpe) // had problems when using abstract classes
+    val dataModelCompanion = dataModelTypeSymbol.companion
+
+//    val dataModelCompanion =  getCompanion(c)(dataModelTypeSymbol.info) // had problems when using abstract classes
 
 
     //Collect all fields for the target type
-//    val targetFields = dataModelCompanion.actualType.decls.find(_.name == TermName("apply")).get.asMethod.paramLists.head
-    val targetFields = dataModelTpe.decls.collectFirst {
+    //    val targetFields = dataModelCompanion.actualType.decls.find(_.name == TermName("apply")).get.asMethod.paramLists.head
+    val dataModelFields = dataModelTypeSymbol.info.decls.collectFirst {
       case m: MethodSymbol if m.isPrimaryConstructor => m
     }.get.paramLists.head
 
-    if (targetFields.exists(_.name.toString == "$global")) {
+    if (dataModelFields.exists(_.name.toString == "$global")) {
       c.abort(c.enclosingPosition, s"You cannot name a field `$$global`. `$$global` is reserved methodName for the global model validator.")
     }
 
-    val targetFieldNames = targetFields.map(_.name.toString)
+    val targetFieldNames = dataModelFields.map(_.name.toString)
 
     val targetFieldDefaultValues: c.Expr[Map[String, Any]] =
       c.Expr[Map[String, Any]](
         q"""
-           $defaultModelValue.map((dmv: $dataModelTpe)=> Map[String, Any](..${targetFields.map(fn => (fn.asTerm.name.toString, q"dmv.${fn.asTerm.name}"))})).getOrElse(${getDefaultValuesFromCompanionObject(c)(c.Expr[Any](q"$dataModelCompanion"))})
+           $defaultFormValue.map((dmv: $dataModelTypeSymbol)=> Map[String, Any](..${dataModelFields.map(fn => (fn.asTerm.name.toString, q"dmv.${fn.asTerm.name}"))})).getOrElse(${getDefaultValuesFromCompanionObject(c)(dataModelCompanion)})
           """)
 
-    val formFieldDescriptors = formLayout.actualType.members.map(_.asTerm).filter(_.isAccessor)
+    val formFieldDescriptors = formLayout.info.members.map(_.asTerm).filter(_.isAccessor)
       .filter(_.asMethod.returnType.<:<(typeOf[FormFieldDescriptor[_]]))
       .toList
 
     // check that targetFields and formFieldDescriptors match
-    val missing = targetFields.map(_.name.toString).toSet.diff(formFieldDescriptors.map(_.name.toString).toSet)
+    val missing = dataModelFields.map(_.name.toString).toSet.diff(formFieldDescriptors.map(_.name.toString).toSet)
     if (missing.nonEmpty) {
       c.abort(c.enclosingPosition, s"The form layout is not fully defined: Missing formFieldDescriptors are:\n--- ${missing.mkString("\n--- ")}")
     }
@@ -88,7 +131,7 @@ object Macros {
     // check types
     val nonMatchingFieldTypes = formFieldDescriptors.toSet.diff(
       formFieldDescriptors.filter(x =>
-        List(targetFields.find(_.name == x.name).get.info) == x.accessed.info.typeArgs).toSet)
+        List(dataModelFields.find(_.name == x.name).get.info) == x.accessed.info.typeArgs).toSet)
 
     if (nonMatchingFieldTypes.nonEmpty) {
       c.abort(
@@ -98,7 +141,7 @@ object Macros {
     }
 
     // collect all targetFieldValidators
-    val targetFieldValidators = validatorObject.actualType.members.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
+    val targetFieldValidators = validatorsHolder.info.members.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
       .filter(v => targetFieldNames.contains(v.name.toString))
 
     val targetFieldValidatorsWrongType =
@@ -111,10 +154,10 @@ object Macros {
     if (!targetFieldValidators.forall { x =>
       x.paramLists.size == 1 ||
         x.paramLists.head.head.name == x.name ||
-        x.paramLists.head.head.info == targetFields.find(_.name.toString == x.name.toString).get.info ||
+        x.paramLists.head.head.info == dataModelFields.find(_.name.toString == x.name.toString).get.info ||
         x.paramLists.head.tail.forall {
           case p@q"Option[$t]" =>
-            val correspondingField = targetFields.find(_.name.toString == p.name.toString)
+            val correspondingField = dataModelFields.find(_.name.toString == p.name.toString)
             correspondingField.nonEmpty && t == correspondingField.get.info
           case _ => false
         }
@@ -127,14 +170,14 @@ object Macros {
 
     val targetFieldValidatorsInfo = targetFieldValidators.map(x => (x.name.toString, (x, x.paramLists.head))).toMap
 
-    val globalTargetValidator = validatorObject.actualType.members.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
+    val globalTargetValidator = validatorsHolder.info.members.map(_.asTerm).filter(_.isMethod).map(_.asMethod)
       .find(_.name.toString == "$global")
 
     // check for correct type
     if (!globalTargetValidator.forall(v => {
       v.returnType.<:<(typeOf[ValidationResult]) &&
         v.paramLists.size == 1 && v.paramLists.head.size == 1 &&
-        v.paramLists.head.head.info == dataModelTpe
+        v.paramLists.head.head.info.typeSymbol == dataModelTypeSymbol
     })) {
       c.abort(c.enclosingPosition,
         s"Type of global validator must match the target type. (def $$global(data: ${globalTargetValidator.get.accessed.info.typeArgs}): torstenrudolf.scalajs.react.formbinder.ValidationResult = ...)")
@@ -142,7 +185,7 @@ object Macros {
 
     val transformedGlobalTargetValidator =
       globalTargetValidator.map(v => q"$v")
-        .getOrElse(q"(d: $dataModelTpe) => torstenrudolf.scalajs.react.formbinder.ValidationResult.Success")
+        .getOrElse(q"(d: $dataModelTypeSymbol) => torstenrudolf.scalajs.react.formbinder.ValidationResult.Success")
 
     case class CompoundField(targetField: c.universe.Symbol,
                              defaultValueExpr: c.universe.Tree,
@@ -154,7 +197,7 @@ object Macros {
       val formFieldBindingValDef = q"val $termName: torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${targetField.info}]"
     }
 
-    val compoundFields = targetFields.zipWithIndex.map { case (f, idx) =>
+    val compoundFields = dataModelFields.zipWithIndex.map { case (f, idx) =>
       val fieldName = f.name.toString
 
       val validatorAndParamsOpt = targetFieldValidatorsInfo.get(fieldName)
@@ -166,7 +209,7 @@ object Macros {
       val transformedTargetFieldValidator = validatorAndParamsOpt
         .map(v =>
           q"""(fieldValue: ${v._2.head.info}, parentForm: torstenrudolf.scalajs.react.formbinder.FormAPI[_]) => {
-                $validatorObject.${v._1}(
+                $validatorsHolder.${v._1}(
                    fieldValue,
                    ..${paramListFieldDescriptors.map(d => q"parentForm.fieldBinding($d).currentValidatedValue")})
               }
@@ -185,10 +228,10 @@ object Macros {
 
     val newTree =
       q"""
-      new torstenrudolf.scalajs.react.formbinder.Form[$dataModelTpe] with torstenrudolf.scalajs.react.formbinder.FormAPI[$dataModelTpe] {
-        override val formLayout: torstenrudolf.scalajs.react.formbinder.FormLayout[$dataModelTpe] = $formLayout
+      new torstenrudolf.scalajs.react.formbinder.Form[$dataModelTypeSymbol] with torstenrudolf.scalajs.react.formbinder.FormAPI[$dataModelTypeSymbol] {
+        override val formLayout: torstenrudolf.scalajs.react.formbinder.FormLayout[$dataModelTypeSymbol] = $formLayout
 
-        override def globalValidator(data: $dataModelTpe): torstenrudolf.scalajs.react.formbinder.ValidationResult =
+        override def globalValidator(data: $dataModelTypeSymbol): torstenrudolf.scalajs.react.formbinder.ValidationResult =
           ($transformedGlobalTargetValidator)(data)
 
         override var isInitializing: Boolean = true
@@ -201,7 +244,7 @@ object Macros {
         isInitializing = false
         onChangeCB.runNow()  // update default values
 
-        override def currentValueWithoutGlobalValidation: scala.util.Try[$dataModelTpe] = {
+        override def currentValueWithoutGlobalValidation: scala.util.Try[$dataModelTypeSymbol] = {
           val fieldValues = allFormFieldBindings.map(_.currentValidatedValue)
           if (fieldValues.forall(_.nonEmpty)) {
             val d = $dataModelCompanion.apply(..${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}.currentValidatedValue.get")})
@@ -211,9 +254,9 @@ object Macros {
           }
         }
 
-        override def setModelValue(newModelValue: $dataModelTpe): japgolly.scalajs.react.Callback = {
+        override def setModelValue(newModelValue: $dataModelTypeSymbol): japgolly.scalajs.react.Callback = {
         ${compoundFields.map(f =>
-          q"""fieldBindingsHolder.${f.termName}.updateValue(newModelValue.${f.termName}) match {
+        q"""fieldBindingsHolder.${f.termName}.updateValue(newModelValue.${f.termName}) match {
               case scala.util.Success(cb) => cb
               case scala.util.Failure(e) => throw torstenrudolf.scalajs.react.formbinder.FormUninitialized
             }""")}.foldLeft(japgolly.scalajs.react.Callback.empty)(_ >> _)
@@ -233,9 +276,8 @@ object Macros {
       }
     """
     //    println(show(newTree))
-    c.Expr[Form[DataModel]](newTree)
+    newTree
   }
-
 }
 
 object FormField {

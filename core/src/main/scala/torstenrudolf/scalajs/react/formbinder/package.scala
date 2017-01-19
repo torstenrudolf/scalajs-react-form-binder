@@ -1,9 +1,10 @@
 package torstenrudolf.scalajs.react
+import scala.annotation.compileTimeOnly
 import scala.language.experimental.macros
 
 package object formbinder {
 
-  // not: currently scala macros dont support default values for arguments
+  // note: currently scala macros dont support default values for arguments
 
   def bindWithDefault[DataModel](formLayout: FormLayout[DataModel],
                                  validatorObject: Any,
@@ -11,5 +12,6 @@ package object formbinder {
 
   def bind[DataModel](formLayout: FormLayout[DataModel],
                       validatorObject: Any): Form[DataModel] = macro Macros.generateWithoutDefault[DataModel]
+
 
 }

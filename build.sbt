@@ -3,7 +3,7 @@ def commonSettings: Project => Project =
   _.enablePlugins(ScalaJSPlugin)
     .settings(
       organization := "com.github.torstenrudolf.scalajs-react-form-binder",
-      version := "0.0.9-SNAPSHOT",
+      version := "0.0.10-SNAPSHOT",
       homepage := Some(url("https://github.com/torstenrudolf/scalajs-react-form-binder")),
       licenses += ("MIT", url("https://opensource.org/licenses/MIT")),
       scalaVersion := "2.11.8",
@@ -49,7 +49,10 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "org.scala-lang" % "scala-compiler" % scalaVersion.value,
       "com.github.japgolly.scalajs-react" %%% "extra" % "0.11.3"
-    )
+    ),
+    libraryDependencies += "com.lihaoyi" %% "utest" % "0.4.5" % "test",
+    testFrameworks += new TestFramework("utest.runner.Framework")
+//    scalacOptions += "-Ymacro-debug-lite"
   )
 
 lazy val extras = project

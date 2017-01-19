@@ -1,7 +1,6 @@
 package torstenrudolf.scalajs.react.formbinder.demo.components
 
 import chandu0101.macros.tojs.GhPagesMacros
-import chandu0101.scalajs.react.components.materialui.MuiFlatButton
 
 
 object SimpleMuiDemo {
@@ -11,9 +10,10 @@ object SimpleMuiDemo {
   import scala.scalajs.js
   import japgolly.scalajs.react._
   import japgolly.scalajs.react.vdom.prefix_<^._
-  import chandu0101.scalajs.react.components.materialui.{MuiRaisedButton, MuiTextField}
+  import chandu0101.scalajs.react.components.materialui.{MuiRaisedButton, MuiTextField, MuiFlatButton}
   import chandu0101.scalajs.react.components.Implicits._
   import torstenrudolf.scalajs.react.formbinder._
+
 
   // the data model
   case class Data(username: String = "Joe", password: String, age: Int)
@@ -48,8 +48,9 @@ object SimpleMuiDemo {
   class Backend($: BackendScope[Unit, Unit]) {
 
     // use it like this:
-    def handleSubmit(f: Form[Data]): Callback = {
-      form.validatedFormData match {
+    def handleSubmit[T](e: ReactEvent, f: Form[T]): Callback = {
+      e.preventDefault()
+      f.validatedFormData match {
         case Some(data) => Callback.alert(s"do what you need to do with $data")
         case _ => Callback.empty
       }
@@ -67,7 +68,7 @@ object SimpleMuiDemo {
           <.div(
             <.h4("With default values from Data case class"),
             <.form(
-              ^.onSubmit --> handleSubmit(form),
+              ^.onSubmit ==> {(e: ReactEvent) => handleSubmit(e, form)},
               <.div(
                 ^.display.flex,
                 ^.flexDirection.column,
@@ -85,10 +86,12 @@ object SimpleMuiDemo {
               <.div(^.color := "red")(form.globalValidationMessage)
             )
           ),
+
+
           <.div(
             <.h4("With explicit default values"),
             <.form(
-              ^.onSubmit --> handleSubmit(form2),
+              ^.onSubmit ==> {(e: ReactEvent) => handleSubmit(e, form2)},
               <.div(
                 ^.display.flex,
                 ^.flexDirection.column,
