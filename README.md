@@ -16,12 +16,12 @@ flexibility of the form design.
 Currently it is available as a sonatype snapshot, add this to your build.sbt:
 
 ```
-libraryDependencies += "com.github.torstenrudolf.scalajs-react-form-binder" %%% "core" % "0.0.10-SNAPSHOT"
+libraryDependencies += "com.github.torstenrudolf.scalajs-react-form-binder" %%% "core" % "0.0.13-SNAPSHOT"
 ```
 
 If you want to use the materialui form-field descriptors, you'll need this as well:
 ```
-libraryDependencies += "com.github.torstenrudolf.scalajs-react-form-binder" %%% "extras" % "0.0.10-SNAPSHOT"
+libraryDependencies += "com.github.torstenrudolf.scalajs-react-form-binder" %%% "extras" % "0.0.13-SNAPSHOT"
 ```
 
 

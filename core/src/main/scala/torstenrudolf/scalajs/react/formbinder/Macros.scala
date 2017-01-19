@@ -131,7 +131,7 @@ object Macros {
     // check types
     val nonMatchingFieldTypes = formFieldDescriptors.toSet.diff(
       formFieldDescriptors.filter(x =>
-        List(dataModelFields.find(_.name == x.name).get.info) == x.accessed.info.typeArgs).toSet)
+        List(dataModelFields.find(_.name == x.name).get.info) == x.info.resultType.typeArgs).toSet)
 
     if (nonMatchingFieldTypes.nonEmpty) {
       c.abort(
