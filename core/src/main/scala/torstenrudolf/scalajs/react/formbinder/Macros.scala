@@ -118,7 +118,15 @@ object Macros {
            $defaultFormValue.map((dmv: $dataModelTypeSymbol)=> Map[String, Any](..${dataModelFields.map(fn => (fn.asTerm.name.toString, q"dmv.${fn.asTerm.name}"))})).getOrElse(${getDefaultValuesFromCompanionObject(c)(dataModelCompanion)})
           """)
 
-    val formFieldDescriptors = formLayout.info.members.sorted
+    val preSortedFFDs = formLayout.info.members.sorted
+    val formFieldDescriptors = formLayout.info.members
+      .sorted  // sorts in order of declaration, but inherited members appear later
+      .sortBy(ffd => {
+        //resort by order of fields in DataModel, but keep decls of read-only-fields where they were declared
+        val i = targetFieldNames.indexOf(ffd.name.toString)
+        if (i != -1) i
+        else preSortedFFDs.indexOf(ffd) - 0.5  // keep it where it was
+      })
       .map(_.asTerm)
       .filter(_.isAccessor)
       .filter(_.asMethod.returnType.<:<(typeOf[FormFieldDescriptor[_]]))
