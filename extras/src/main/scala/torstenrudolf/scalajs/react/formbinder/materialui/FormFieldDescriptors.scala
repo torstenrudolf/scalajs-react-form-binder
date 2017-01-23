@@ -9,6 +9,7 @@ import scala.scalajs.js.JSConverters._
 import torstenrudolf.scalajs.react.formbinder._
 
 import scala.scalajs.js
+import scala.util.Try
 
 /*
 Some convenient helpers that reduce the boilerplate in simple cases
@@ -41,7 +42,7 @@ object FormFieldDescriptors {
       FormFieldDescriptor[Double]((a: FormFieldArgs[Double]) =>
         mf.copy(
           value = a.currentValue.getOrElse(0).toString,
-          onChange = (e: ReactEventI) => a.onChangeCB(e.target.value.toDouble),
+          onChange = (e: ReactEventI) => a.onChangeCB(Try(e.target.value.toDouble).getOrElse(0)),
           errorText = a.errorMessage.map(_.asInstanceOf[ReactNode])
         )()
       )
@@ -53,7 +54,7 @@ object FormFieldDescriptors {
       FormFieldDescriptor[Int]((a: FormFieldArgs[Int]) =>
         mf.copy(
           value = a.currentValue.getOrElse(0).toString,
-          onChange = (e: ReactEventI) => a.onChangeCB(e.target.value.toInt),
+          onChange = (e: ReactEventI) => a.onChangeCB(Try(e.target.value.toInt).getOrElse(0)),
           errorText = a.errorMessage.map(_.asInstanceOf[ReactNode])
         )()
       )
