@@ -8,6 +8,7 @@ object SimpleMuiDemo {
 
   // EXAMPLE:START
   import scala.scalajs.js
+  import js.JSConverters._
   import japgolly.scalajs.react._
   import japgolly.scalajs.react.vdom.prefix_<^._
   import chandu0101.scalajs.react.components.materialui.{MuiRaisedButton, MuiTextField, MuiFlatButton}
@@ -38,6 +39,10 @@ object SimpleMuiDemo {
     val username = MuiTextField(floatingLabelText = "Username").asFormFieldDescriptor
     val password = MuiTextField(floatingLabelText = "Password", `type` = "password").asFormFieldDescriptor
     val age = MuiTextField(floatingLabelText = "Age", `type` = "number").asIntFormFieldDescriptor
+
+    val calculatedField = FormFieldDescriptor[Unit]((a: FormFieldArgs[Unit]) =>
+      MuiTextField(floatingLabelText = "Calculated Field", disabled = true, value = (a.otherFieldValue(username) zip a.otherFieldValue(age)).map{case (un, age) => s"$un ($age yrs)"}.headOption.orUndefined)()
+    )
   }
 
   // this does the magic and binds the data model, validation rules and formlayout together
@@ -73,9 +78,7 @@ object SimpleMuiDemo {
                 ^.display.flex,
                 ^.flexDirection.column,
                 ^.marginBottom := 15.px,
-                form.field(FormLayout.username),
-                form.field(FormLayout.password),
-                form.field(FormLayout.age)
+                form.allFields
               ),
               <.div(
                 MuiFlatButton(label = "Override", onClick = (e: ReactEventH) => overrideFormData(form))(),

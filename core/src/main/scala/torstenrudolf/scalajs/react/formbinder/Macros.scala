@@ -118,9 +118,10 @@ object Macros {
            $defaultFormValue.map((dmv: $dataModelTypeSymbol)=> Map[String, Any](..${dataModelFields.map(fn => (fn.asTerm.name.toString, q"dmv.${fn.asTerm.name}"))})).getOrElse(${getDefaultValuesFromCompanionObject(c)(dataModelCompanion)})
           """)
 
-    val formFieldDescriptors = formLayout.info.members.map(_.asTerm).filter(_.isAccessor)
+    val formFieldDescriptors = formLayout.info.members.sorted
+      .map(_.asTerm)
+      .filter(_.isAccessor)
       .filter(_.asMethod.returnType.<:<(typeOf[FormFieldDescriptor[_]]))
-      .toList
 
     // check that targetFields and formFieldDescriptors match
     val missing = dataModelFields.map(_.name.toString).toSet.diff(formFieldDescriptors.map(_.name.toString).toSet)
@@ -130,8 +131,15 @@ object Macros {
 
     // check types
     val nonMatchingFieldTypes = formFieldDescriptors.toSet.diff(
-      formFieldDescriptors.filter(x =>
-        List(dataModelFields.find(_.name == x.name).get.info) == x.info.resultType.typeArgs).toSet)
+      formFieldDescriptors.filter(ffd =>
+        ffd.info.resultType.typeArgs.size == 1 && {
+          dataModelFields.find(_.name == ffd.name) match {
+            case Some(targetField) => targetField.info == ffd.info.resultType.typeArgs.head
+            case None => ffd.info.resultType.typeArgs.head == typeOf[Unit]  // is calculated field
+          }
+        }
+      ).toSet
+    )
 
     if (nonMatchingFieldTypes.nonEmpty) {
       c.abort(
@@ -187,18 +195,21 @@ object Macros {
       globalTargetValidator.map(v => q"$v")
         .getOrElse(q"(d: $dataModelTypeSymbol) => torstenrudolf.scalajs.react.formbinder.ValidationResult.Success")
 
-    case class CompoundField(targetField: c.universe.Symbol,
-                             defaultValueExpr: c.universe.Tree,
+    case class CompoundField(targetField: Option[c.universe.Symbol],
                              transformedTargetFieldValidator: c.universe.Tree,
                              name: String,
                              termName: c.universe.TermName,
                              formFieldDescriptor: c.universe.TermSymbol) {
-      val fieldType = targetField.info
-      val formFieldBindingValDef = q"val $termName: torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${targetField.info}]"
+      val hasTargetField = targetField.isDefined
+      val fieldType = targetField.map(_.info).getOrElse(typeOf[Unit])
+      val isString = fieldType =:= typeOf[String]
+      val formFieldBindingValDef = q"val $termName: torstenrudolf.scalajs.react.formbinder.FormFieldBinding[$fieldType]"
+      val defaultValueExpr = q"$targetFieldDefaultValues.get($name).asInstanceOf[Option[${fieldType}]]"
     }
 
-    val compoundFields = dataModelFields.zipWithIndex.map { case (f, idx) =>
-      val fieldName = f.name.toString
+    val compoundFields = formFieldDescriptors.zipWithIndex.map{ case (ffd, idx) =>
+      val fieldName = ffd.name.toString
+      val dataModelField = dataModelFields.find(_.name.toString == ffd.name.toString)
 
       val validatorAndParamsOpt = targetFieldValidatorsInfo.get(fieldName)
 
@@ -217,14 +228,14 @@ object Macros {
         .map(v => q"Some($v)").getOrElse(q"None")
 
       CompoundField(
-        targetField = f,
-        defaultValueExpr = q"$targetFieldDefaultValues.get($fieldName).asInstanceOf[Option[${f.info}]]",
+        targetField = dataModelField,
         transformedTargetFieldValidator = transformedTargetFieldValidator,
         name = fieldName,
         termName = TermName(fieldName),
-        formFieldDescriptor = formFieldDescriptors.find(_.name.toString == fieldName).get
+        formFieldDescriptor = ffd
       )
     }
+
 
     val newTree =
       q"""
@@ -237,7 +248,7 @@ object Macros {
         override var isInitializing: Boolean = true
 
         private case class FieldBindingsHolder(..${compoundFields.map(_.formFieldBindingValDef)})
-        private val fieldBindingsHolder = new FieldBindingsHolder(..${compoundFields.map(f => q"""torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${f.fieldType}]($formLayout.${f.formFieldDescriptor}, ${f.defaultValueExpr}, ${f.targetField.info =:= typeOf[String]}, ${f.transformedTargetFieldValidator}, this, ${f.name})""")})
+        private val fieldBindingsHolder = new FieldBindingsHolder(..${compoundFields.map(f => q"""torstenrudolf.scalajs.react.formbinder.FormFieldBinding[${f.fieldType}]($formLayout.${f.formFieldDescriptor}, ${f.defaultValueExpr}, ${f.isString}, ${f.transformedTargetFieldValidator}, this, ${f.name}, ${f.hasTargetField})""")})
 
         val allFormFieldBindings: List[torstenrudolf.scalajs.react.formbinder.FormFieldBinding[_]] = ${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}")}
 
@@ -245,9 +256,9 @@ object Macros {
         onChangeCB.runNow()  // update default values
 
         override def currentValueWithoutGlobalValidation: scala.util.Try[$dataModelTypeSymbol] = {
-          val fieldValues = allFormFieldBindings.map(_.currentValidatedValue)
+          val fieldValues = allFormFieldBindingsWithUnderlyingDataField.map(_.currentValidatedValue)
           if (fieldValues.forall(_.nonEmpty)) {
-            val d = $dataModelCompanion.apply(..${compoundFields.map(f => q"fieldBindingsHolder.${f.termName}.currentValidatedValue.get")})
+            val d = $dataModelCompanion.apply(..${compoundFields.filter(_.hasTargetField).map(f => q"${f.termName} = fieldBindingsHolder.${f.termName}.currentValidatedValue.get")})
             scala.util.Success(d)
           } else {
             scala.util.Failure(torstenrudolf.scalajs.react.formbinder.FormUninitialized)
@@ -255,7 +266,7 @@ object Macros {
         }
 
         override def setModelValue(newModelValue: $dataModelTypeSymbol): japgolly.scalajs.react.Callback = {
-        ${compoundFields.map(f =>
+        ${compoundFields.filter(_.hasTargetField).map(f =>
         q"""fieldBindingsHolder.${f.termName}.updateValue(newModelValue.${f.termName}) match {
               case scala.util.Success(cb) => cb
               case scala.util.Failure(e) => throw torstenrudolf.scalajs.react.formbinder.FormUninitialized
@@ -313,6 +324,8 @@ object FormField {
 
       $.modState(_.copy(currentValidationResult = Some(validationResult), showUnitializedError = showUnitializedErrorX)) >> CallbackTo(validationResult)
     }
+
+    def forceUpdate: Callback = $.forceUpdate
 
     private def onChangeCB: Callback =
       $.state.zip($.props) >>= { case (state, props) => props.onChangeCB(currentValidatedValue) }
@@ -379,13 +392,16 @@ case class FormFieldBinding[O](formFieldDescriptor: FormFieldDescriptor[O],
                                private val isString: Boolean,
                                transformedTargetFieldValidator: Option[(O, FormAPI[_]) => ValidationResult],
                                private val parentForm: Form[_] with FormAPI[_],
-                               fieldName: String) {
+                               fieldName: String,
+                               hasTargetField: Boolean) {
 
   def currentValidatedValue: Option[O] = formFieldBackend.flatMap(_.currentValidatedValue)
 
   def currentValidationResult: Try[ValidationResult] = Try(formFieldBackend.get.currentValidationResult)
 
   def validate(showUninitializedError: Boolean): Try[Callback] = Try(formFieldBackend.get.validate(showUninitializedError).void)
+
+  def forceUpdateComponent: Callback = formFieldBackend.map(_.forceUpdate).getOrElse(Callback.empty)
 
   def updateValue(v: O): Try[Callback] = Try(formFieldBackend.get.updateRawValue(Some(v)))
 
@@ -452,7 +468,16 @@ trait FormAPI[T] extends Form[T] {
   }
 
   private def validateAllFields(showUninitializedError: Boolean): Try[Unit] =
-    Try(allFormFieldBindings.map(_.validate(showUninitializedError = showUninitializedError).get).reduce {_ >> _}.runNow())
+  // this validates the fields as well as triggers the field components to refresh
+    Try(
+      {
+        allFormFieldBindingsWithUnderlyingDataField
+          .map(_.validate(showUninitializedError = showUninitializedError).get) ++
+          allFormFieldBindings.filter(f => !f.hasTargetField).map(_.forceUpdateComponent)
+      }
+        .reduce {_ >> _}
+        .runNow()
+    )
 
   override def fullValidate: Callback = Callback {validate(showUninitializedError = true)}
 
@@ -467,13 +492,16 @@ trait FormAPI[T] extends Form[T] {
     _validatedFormData
   }
 
-  private def allFieldValidationResults: List[ValidationResult] = allFormFieldBindings.map(
+  private def allFieldValidationResults: List[ValidationResult] = allFormFieldBindingsWithUnderlyingDataField.map(
     _.currentValidationResult match {
       case Success(vr) => vr
       case _ => throw FormUninitialized
   })
 
   protected def allFormFieldBindings: List[FormFieldBinding[_]]
+
+  protected def allFormFieldBindingsWithUnderlyingDataField: List[FormFieldBinding[_]] =
+    allFormFieldBindings.filter(_.hasTargetField)
 
   override def field[A](fd: torstenrudolf.scalajs.react.formbinder.FormFieldDescriptor[A]): ReactNode =
     fieldBinding(fd).formField
@@ -490,7 +518,7 @@ trait FormAPI[T] extends Form[T] {
   override def clearAllFields: Callback = {
     // note: this calls FormAPI.onChangeCB and therefore FormAPI.validate N times (N = number of form fields)
     //  this could become slow for big forms and we might need to improve this
-    Try(allFormFieldBindings.map(_.clear.get).reduce {_ >> _}) match {
+    Try(allFormFieldBindingsWithUnderlyingDataField.map(_.clear.get).reduce {_ >> _}) match {
       case Success(cb) => cb
       case Failure(e) => throw FormUninitialized
     }
@@ -501,12 +529,13 @@ trait FormAPI[T] extends Form[T] {
     case Failure(e) => throw FormUninitialized
   }
 
-  override def resetAllFields: Callback = Try(allFormFieldBindings.map(_.resetToDefault.get).reduce {_ >> _}) match {
-    // note: this calls FormAPI.onChangeCB and therefore FormAPI.validate N times (N = number of form fields)
-    //  this could become slow for big forms and we might need to improve this
-    case Success(cb) => cb
-    case Failure(e) => throw FormUninitialized
-  }
+  override def resetAllFields: Callback =
+    Try(allFormFieldBindingsWithUnderlyingDataField.map(_.resetToDefault.get).reduce {_ >> _}) match {
+      // note: this calls FormAPI.onChangeCB and therefore FormAPI.validate N times (N = number of form fields)
+      //  this could become slow for big forms and we might need to improve this
+      case Success(cb) => cb
+      case Failure(e) => throw FormUninitialized
+    }
 
   override def setFieldValue[A](fd: torstenrudolf.scalajs.react.formbinder.FormFieldDescriptor[A], value: A): Callback =
     fieldBinding(fd).updateValue(value) match {
