@@ -29,6 +29,8 @@ trait Form[DataModel] {
 
   def resetAllFields: Callback
 
+  def subscribeToUpdates(cb: Callback): Unit
+
 }
 
 

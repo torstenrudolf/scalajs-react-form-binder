@@ -443,6 +443,8 @@ trait FormAPI[T] extends Form[T] {
 
   private var _validatedFormData: Option[T] = None
   private var _formGlobalValidationResult: Option[ValidationResult] = None
+  private val _formOnChangeSubscribers: scala.collection.mutable.ListBuffer[Callback] =
+    scala.collection.mutable.ListBuffer.empty[Callback]
 
   private def formGlobalValidationResult: ValidationResult = _formGlobalValidationResult match {
     case Some(vr) => vr
@@ -491,7 +493,9 @@ trait FormAPI[T] extends Form[T] {
 
   def onChangeCB: Callback = {
     validate(showUninitializedError = false)
+
     formLayout.onChange(validatedData = _validatedFormData) >>
+      _formOnChangeSubscribers.foldLeft(Callback.empty)(_ >> _) >>
       forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
   }
 
@@ -550,6 +554,8 @@ trait FormAPI[T] extends Form[T] {
       case Success(cb) => cb
       case Failure(e) => throw FormUninitialized
     }
+
+  override def subscribeToUpdates(cb: Callback): Unit = _formOnChangeSubscribers.append(cb)
 
   private var forceGlobalValidationMessageUpdate: Option[Callback] = None
 
