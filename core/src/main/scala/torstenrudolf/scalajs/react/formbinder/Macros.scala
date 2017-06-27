@@ -443,6 +443,7 @@ trait FormAPI[T] extends Form[T] {
 
   private var _validatedFormData: Option[T] = None
   private var _formGlobalValidationResult: Option[ValidationResult] = None
+  override def globalValidationResult: Option[ValidationResult] = _formGlobalValidationResult
   private val _formOnChangeSubscribers: scala.collection.mutable.ListBuffer[Callback] =
     scala.collection.mutable.ListBuffer.empty[Callback]
 
@@ -455,8 +456,8 @@ trait FormAPI[T] extends Form[T] {
 
   protected def currentValueWithoutGlobalValidation: scala.util.Try[T]
 
-  private def validate(showUninitializedError: Boolean): Unit = {
-    val fieldValidationSucceeded = validateAllFields(showUninitializedError = showUninitializedError) match {
+  private def validate(showUninitializedError: Boolean): Callback = {
+    validateAllFields(showUninitializedError = showUninitializedError) match {
       case Success(_) => currentValueWithoutGlobalValidation match {
         case Success(data) => globalValidator(data) match {
           case r if !r.isValid =>
@@ -475,6 +476,9 @@ trait FormAPI[T] extends Form[T] {
         _formGlobalValidationResult = None
     }
 
+    formLayout.onChange(validatedData = _validatedFormData) >>
+      _formOnChangeSubscribers.foldLeft(Callback.empty)(_ >> _)
+
   }
 
   private def validateAllFields(showUninitializedError: Boolean): Try[Unit] =
@@ -489,18 +493,12 @@ trait FormAPI[T] extends Form[T] {
         .runNow()
     )
 
-  override def fullValidate: Callback = Callback {validate(showUninitializedError = true)}
+  override def fullValidate: Callback = validate(showUninitializedError = true)
 
-  def onChangeCB: Callback = {
-    validate(showUninitializedError = false)
-
-    formLayout.onChange(validatedData = _validatedFormData) >>
-      _formOnChangeSubscribers.foldLeft(Callback.empty)(_ >> _) >>
-      forceGlobalValidationMessageUpdate.getOrElse(Callback.empty)
-  }
+  def onChangeCB: Callback = validate(showUninitializedError = false)
 
   override def validatedFormData: Option[T] = {
-    validate(showUninitializedError = true)
+    validate(showUninitializedError = true).runNow()
     _validatedFormData
   }
 
@@ -556,17 +554,5 @@ trait FormAPI[T] extends Form[T] {
     }
 
   override def subscribeToUpdates(cb: Callback): Unit = _formOnChangeSubscribers.append(cb)
-
-  private var forceGlobalValidationMessageUpdate: Option[Callback] = None
-
-  override def globalValidationMessage: ReactNode = {
-    val component = ReactComponentB[Unit]("FormGlobalError")
-      .stateless
-      .render(scope => <.div(_formGlobalValidationResult.nonEmpty ?= <.div(_formGlobalValidationResult.get.errorMessage)))
-      .componentDidMount(scope => Callback {forceGlobalValidationMessageUpdate = Some(scope.forceUpdate)})
-      .build
-
-    component()
-  }
 
 }

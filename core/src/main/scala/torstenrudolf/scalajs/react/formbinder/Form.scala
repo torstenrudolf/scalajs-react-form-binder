@@ -11,7 +11,7 @@ trait Form[DataModel] {
 
   def field[T](fd: FormFieldDescriptor[T]): ReactNode
 
-  def globalValidationMessage: ReactNode
+  def globalValidationResult: Option[ValidationResult]
 
   def allFields: List[ReactNode]
 

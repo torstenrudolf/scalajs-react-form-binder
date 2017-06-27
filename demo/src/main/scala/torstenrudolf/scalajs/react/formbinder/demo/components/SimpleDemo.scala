@@ -73,7 +73,7 @@ object SimpleDemo {
           <.div(
             <.button("Submit")
           ),
-          <.div(^.color := "red")(form.globalValidationMessage)
+          <.div(^.color := "red")(form.globalValidationResult.map(_.errorMessage))
         )
       )
     )

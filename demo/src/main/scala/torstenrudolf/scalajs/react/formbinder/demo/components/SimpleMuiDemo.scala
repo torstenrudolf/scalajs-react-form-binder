@@ -15,7 +15,6 @@ object SimpleMuiDemo {
   import chandu0101.scalajs.react.components.Implicits._
   import torstenrudolf.scalajs.react.formbinder._
 
-
   // the data model
   case class Data(username: String = "Joe", password: String, age: Int)
 
@@ -45,12 +44,12 @@ object SimpleMuiDemo {
     )
   }
 
-  // this does the magic and binds the data model, validation rules and formlayout together
-  val form = bind[Data](FormLayout, DataValidation)
-
-  val form2 = bindWithDefault[Data](FormLayout, DataValidation, Data("heinz", "you won't know", 91))
-
   class Backend($: BackendScope[Unit, Unit]) {
+
+    // this does the magic and binds the data model, validation rules and formlayout together
+    val form = bind[Data](FormLayout, DataValidation)
+
+    val form2 = bindWithDefault[Data](FormLayout, DataValidation, Data("heinz", "you won't know", 91))
 
     // use it like this:
     def handleSubmit[T](e: ReactEvent, f: Form[T]): Callback = {
@@ -68,6 +67,7 @@ object SimpleMuiDemo {
 
     // you have full control over the display of the form fields
     def render() = {
+      println(s"form: ${form.globalValidationResult}; form2: ${form2.globalValidationResult}")
       CodeExample(code, "Using Material-UI")(
         <.div(
           <.div(
@@ -86,7 +86,7 @@ object SimpleMuiDemo {
                 MuiFlatButton(label = "Reset", onClick = (e: ReactEventH) => form.resetAllFields)(),
                 MuiRaisedButton(label = "Submit", `type` = "submit")()
               ),
-              <.div(^.color := "red")(form.globalValidationMessage)
+              <.div(^.color := "red")(form.globalValidationResult.map(_.errorMessage))
             )
           ),
 
@@ -109,7 +109,7 @@ object SimpleMuiDemo {
                 MuiFlatButton(label = "Reset", onClick = (e: ReactEventH) => form2.resetAllFields)(),
                 MuiRaisedButton(label = "Submit", `type` = "submit")()
               ),
-              <.div(^.color := "red")(form2.globalValidationMessage)
+              <.div(^.color := "red")(form2.globalValidationResult.map(_.errorMessage))
             )
           )
         )
@@ -122,6 +122,12 @@ object SimpleMuiDemo {
   val component = ReactComponentB[Unit]("SimpleMuiDemo")
     .stateless
     .renderBackend[Backend]
+    .componentDidMount(scope =>
+      Callback {
+        scope.backend.form.subscribeToUpdates(scope.forceUpdate)
+        scope.backend.form2.subscribeToUpdates(scope.forceUpdate)
+      } >> scope.forceUpdate
+    )
     .build
 
   def apply() = component()

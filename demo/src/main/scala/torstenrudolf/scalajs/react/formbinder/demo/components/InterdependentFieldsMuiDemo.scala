@@ -62,10 +62,10 @@ object InterdependentFieldsMuiDemo {
     )
   }
 
-  // this does the magic and binds the data model, validation rules and formlayout together
-  val form = bind[Data](FormLayout, DataValidation)
-
   class Backend($: BackendScope[Unit, Unit]) {
+
+    // this does the magic and binds the data model, validation rules and formLayout together
+    val form = bind[Data](FormLayout, DataValidation)
 
     // use it like this:
     def handleSubmit: Callback = {
@@ -92,7 +92,7 @@ object InterdependentFieldsMuiDemo {
             MuiFlatButton(label = "Reset", onClick = (e: ReactEventH) => form.resetAllFields)(),
             MuiRaisedButton(label = "Submit", onClick = (e: ReactEventH) => handleSubmit)()
           ),
-          <.div(^.color := "red")(form.globalValidationMessage)
+          <.div(^.color := "red")(form.globalValidationResult.map(_.errorMessage))
         )
       )
     )
@@ -103,6 +103,11 @@ object InterdependentFieldsMuiDemo {
   val component = ReactComponentB[Unit]("InterdependentFieldsMuiDemo")
     .stateless
     .renderBackend[Backend]
+    .componentDidMount(scope =>
+      Callback {
+        scope.backend.form.subscribeToUpdates(scope.forceUpdate)
+      } >> scope.forceUpdate
+    )
     .build
 
   def apply() = component()
