@@ -3,7 +3,7 @@ def commonSettings: Project => Project =
   _.enablePlugins(ScalaJSPlugin)
     .settings(
       organization := "com.github.torstenrudolf.scalajs-react-form-binder",
-      version := "0.0.17-SNAPSHOT",
+      version := "0.0.17",
       homepage := Some(url("https://github.com/torstenrudolf/scalajs-react-form-binder")),
       licenses += ("MIT", url("https://opensource.org/licenses/MIT")),
       scalaVersion := "2.11.8",
