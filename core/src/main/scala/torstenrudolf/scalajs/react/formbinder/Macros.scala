@@ -502,6 +502,11 @@ trait FormAPI[T] extends Form[T] {
     _validatedFormData
   }
 
+  override def validatedFormDataNew(reValidate: Boolean): Option[T] = {
+    if (reValidate) validatedFormData
+    else _validatedFormData
+  }
+
   private def allFieldValidationResults: List[ValidationResult] = allFormFieldBindingsWithUnderlyingDataField.map(
     _.currentValidationResult match {
       case Success(vr) => vr

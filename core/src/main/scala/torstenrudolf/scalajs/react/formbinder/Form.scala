@@ -9,6 +9,8 @@ trait Form[DataModel] {
 
   def validatedFormData: Option[DataModel]
 
+  def validatedFormDataNew(reValidate: Boolean): Option[DataModel]
+
   def field[T](fd: FormFieldDescriptor[T]): ReactNode
 
   def globalValidationResult: Option[ValidationResult]
