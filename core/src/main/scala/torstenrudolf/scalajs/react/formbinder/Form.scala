@@ -9,6 +9,7 @@ trait Form[DataModel] {
 
   def validatedFormData: Option[DataModel]
 
+  // todo: clean up and sync with `validatedFormData`
   def validatedFormDataNew(reValidate: Boolean): Option[DataModel]
 
   def field[T](fd: FormFieldDescriptor[T]): ReactNode
@@ -49,7 +50,7 @@ case class FormFieldArgs[T](fieldName: String,
                             onChangeCB: (T) => Callback,
                             resetToDefaultCB: Callback,
                             clearCB: Callback,
-                            private val parentForm: Form[_] with FormAPI[_]) {
+                            private[formbinder] val parentForm: Form[_] with FormAPI[_]) {
 
   def otherFieldValue[T2](fd: FormFieldDescriptor[T2]): Option[T2] = parentForm.fieldValue(fd)
 
@@ -59,8 +60,23 @@ case class FormFieldArgs[T](fieldName: String,
     if (currentValidationResult.isValid) js.undefined
     else currentValidationResult.errorMessage
 
+
+  def transform[B](f1: B => T, f2: T => Option[B]): FormFieldArgs[B] = {
+    FormFieldArgs[B](
+      fieldName = this.fieldName,
+      currentValue = this.currentValue.flatMap(f2),
+      currentValidationResult = this.currentValidationResult,
+      onChangeCB = (b: B) => this.onChangeCB(f1(b)),
+      resetToDefaultCB = this.resetToDefaultCB,
+      clearCB = this.clearCB,
+      parentForm: Form[_] with FormAPI[_]
+    )
+  }
+
 }
 
+
+// todo: this could just be a type alias
 case class FormFieldDescriptor[T](descr: (FormFieldArgs[T]) => ReactNode)
 
 
