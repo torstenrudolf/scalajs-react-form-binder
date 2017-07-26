@@ -200,7 +200,7 @@ object Macros {
     }
 
     val transformedGlobalTargetValidator =
-      globalTargetValidator.map(v => q"$v")
+      globalTargetValidator.map(v => q"(d: $dataModelTypeSymbol) => $validatorsHolder.$v(d)")
         .getOrElse(q"(d: $dataModelTypeSymbol) => torstenrudolf.scalajs.react.formbinder.ValidationResult.Success")
 
     case class CompoundField(targetField: Option[c.universe.Symbol],

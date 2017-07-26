@@ -26,6 +26,8 @@ object FormBinderTraitDemo {
 
         def age(age: Int) = Validator(age >= 18, "Must be at least 18")
 
+        def $global(data: DataModel): ValidationResult = Validator(data.username != data.password || data.age > 32, "username and password must be different or age must be greater than 32.")
+
       }
 
       object formLayout extends FormLayout[DataModel] {
